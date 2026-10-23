@@ -6,9 +6,13 @@ A light, Wii-inspired home screen for Android TV and Google TV. No ads, no recom
 
 ![Menu](docs/screenshot.png)
 
-| Dark theme | Folder | Update menu (SD card) |
+| Channel preview | Dragging a channel | Inputs (mail button) |
 |---|---|---|
-| ![Dark](docs/dark.png) | ![Folder](docs/folder.png) | ![SD](docs/sd.png) |
+| ![Preview](docs/preview.png) | ![Drag](docs/drag.png) | ![Inputs](docs/inputs.png) |
+
+| Folder options | Folder | Update menu (SD card) |
+|---|---|---|
+| ![Folder options](docs/folder-options.png) | ![Folder](docs/folder.png) | ![SD](docs/sd.png) |
 
 > Not affiliated with Nintendo. No Nintendo assets are used. See [DISCLAIMER.md](DISCLAIMER.md).
 
@@ -18,7 +22,7 @@ A light, Wii-inspired home screen for Android TV and Google TV. No ads, no recom
 - **Hand cursor**: a pointing hand glides to whatever is selected, and the selection is outlined in blue.
 - **Channel preview**: zoom animation with **Menu / Start** buttons.
 - **Folders**: group channels into folders. A folder tile shows a mosaic of its apps.
-- **Bottom bar**: clock and date. The ⚙ button opens system settings. The SD card opens the update menu and pulses when GitHub has a newer release. The ✉ button opens the TV inputs (HDMI, TV, AirPlay…).
+- **Bottom bar**: clock and date. The ⚙ button opens system settings. The SD card opens the update menu and pulses when GitHub has a newer release. The ✉ button lists the TV inputs (TV, HDMI 1, HDMI 2…) and switches to the one you pick.
 - **Light and dark themes**: Automatic, Light or Dark, chosen in the SD card menu.
 - **Sounds**: synthesized at runtime, no audio files.
 - **Drag channels**: hold OK on a channel. The hand closes into a fist; move the channel with the D-pad and drop it with OK.

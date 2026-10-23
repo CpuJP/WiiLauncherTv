@@ -1,7 +1,6 @@
 package io.github.cpujp.wiilauncher;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -15,8 +14,8 @@ import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
-import android.text.InputType;
-import android.widget.EditText;
+import android.view.KeyEvent;
+import android.widget.FrameLayout;
 import android.widget.Toast;
 
 import java.util.ArrayList;
@@ -27,12 +26,13 @@ public final class MainActivity extends Activity implements WiiMenuView.Callback
     private static final String PREFS = "ui";
     private static final String KEY_THEME = "theme"; // 0 = follow system, 1 = light (default, as on the Wii), 2 = dark
 
-    // TCL's input panel (HDMI, TV, AirPlay...), the same one the remote's input key opens.
+    // TCL's own input panel, used only if the TV reports no inputs through TvInputManager.
     private static final ComponentName TCL_INPUTS = new ComponentName("com.tcl.suspension", "com.tcl.suspension.DismissService");
     private static final String TCL_INPUTS_ACTION = "com.tcl.quickpanel.show.window";
 
     private AppRepository repo;
     private WiiMenuView menu;
+    private WiiPrompt prompt;
     private Sfx sfx;
     private Updater updater;
     private SharedPreferences prefs;
@@ -51,7 +51,12 @@ public final class MainActivity extends Activity implements WiiMenuView.Callback
         sfx = new Sfx();
         updater = new Updater(this, this);
         menu = new WiiMenuView(this, this, sfx);
-        setContentView(menu);
+        prompt = new WiiPrompt(this);
+        FrameLayout root = new FrameLayout(this);
+        root.setClipChildren(false);
+        root.addView(menu);
+        root.addView(prompt);
+        setContentView(root);
         menu.requestFocus();
         applyTheme();
         menu.setUpdateInfo(versionName(), "", false, "");
@@ -73,6 +78,7 @@ public final class MainActivity extends Activity implements WiiMenuView.Callback
 
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        if (prompt.isShowing()) prompt.cancel();
         menu.resetToMenu(); // Home pressed while already home
     }
 
@@ -86,6 +92,14 @@ public final class MainActivity extends Activity implements WiiMenuView.Callback
         updater.shutdown();
         sfx.release();
         super.onDestroy();
+    }
+
+    @Override public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (keyCode == KeyEvent.KEYCODE_BACK && prompt.isShowing()) {
+            prompt.cancel();
+            return true;
+        }
+        return super.onKeyUp(keyCode, event);
     }
 
     @Override public boolean onSearchRequested() {
@@ -108,10 +122,27 @@ public final class MainActivity extends Activity implements WiiMenuView.Callback
     }
 
     @Override public void onInputs() {
+        List<InputSources.Source> sources;
+        try {
+            sources = InputSources.list(this);
+        } catch (RuntimeException e) {
+            sources = new ArrayList<>();
+        }
+        if (sources.isEmpty()) {
+            openVendorInputs();
+            return;
+        }
+        List<String> labels = new ArrayList<>();
+        for (InputSources.Source s : sources) labels.add(s.label);
+        List<InputSources.Source> finalSources = sources;
+        menu.showList(getString(R.string.inputs_title), labels, i -> start(InputSources.intentFor(finalSources.get(i))));
+    }
+
+    private void openVendorInputs() {
         try {
             if (startService(new Intent(TCL_INPUTS_ACTION).setComponent(TCL_INPUTS)) != null) return;
         } catch (SecurityException | IllegalStateException ignored) {
-            // not a TCL TV, or the panel is unavailable: fall back to the system input settings
+            // not a TCL TV: fall back to the system settings
         }
         onSettings();
     }
@@ -130,39 +161,51 @@ public final class MainActivity extends Activity implements WiiMenuView.Callback
         applyTheme();
     }
 
+    /** Wii-style options list for a channel, a folder, or an app inside a folder. */
     @Override public void onOptions(Channel ch, int index, Channel inFolder) {
         List<String> items = new ArrayList<>();
         List<Runnable> actions = new ArrayList<>();
-        items.add(getString(R.string.move));
-        actions.add(menu::startGrab);
         if (ch.isFolder()) {
-            items.add(getString(R.string.folder_rename));
-            actions.add(() -> askName(ch.label, name -> {
-                ch.folder.name = name;
-                repo.saveFolders();
-                reload();
-            }));
-            items.add(getString(R.string.folder_ungroup));
-            actions.add(() -> ungroup(ch));
+            add(items, actions, R.string.folder_open, () -> menu.openChannel(index));
+            add(items, actions, R.string.move, menu::startGrab);
+            folderActions(ch, items, actions);
         } else {
+            add(items, actions, R.string.move, menu::startGrab);
             if (inFolder != null) {
-                items.add(getString(R.string.folder_take_out));
-                actions.add(() -> takeOut(ch.app.pkg, inFolder));
+                add(items, actions, R.string.folder_take_out, () -> takeOut(ch.app.pkg, inFolder));
+                folderActions(inFolder, items, actions);
             } else {
-                items.add(getString(R.string.folder_add));
-                actions.add(() -> pickFolder(ch.app));
+                add(items, actions, R.string.folder_add, () -> pickFolder(ch.app));
             }
-            items.add(getString(R.string.app_info));
-            actions.add(() -> start(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            add(items, actions, R.string.app_info, () -> start(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                     Uri.parse("package:" + ch.app.pkg)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
         }
-        new AlertDialog.Builder(this, dialogTheme())
-                .setTitle(ch.label)
-                .setItems(items.toArray(new String[0]), (d, which) -> actions.get(which).run())
-                .show();
+        menu.showList(ch.label, items, i -> actions.get(i).run());
     }
 
-    // ------------------------------------------------------------ channel order and folders
+    /** Rename, take apps out, delete: everything a folder needs, reachable from inside or outside it. */
+    private void folderActions(Channel folder, List<String> items, List<Runnable> actions) {
+        add(items, actions, R.string.folder_rename, () -> askName(getString(R.string.folder_rename), folder.label, name -> {
+            Folders.Folder f = repo.folders().get(folder.folder.id);
+            if (f == null) return;
+            f.name = name;
+            repo.saveFolders();
+            reload();
+        }));
+        add(items, actions, R.string.folder_take_apps, () -> {
+            List<String> labels = new ArrayList<>();
+            for (AppEntry a : folder.folderApps) labels.add(a.label);
+            menu.showList(getString(R.string.folder_take_apps), labels, i -> takeOut(folder.folderApps.get(i).pkg, folder));
+        });
+        add(items, actions, R.string.folder_delete, () -> menu.showList(
+                getString(R.string.folder_delete_confirm, folder.label),
+                List.of(getString(R.string.folder_delete)), i -> ungroup(folder)));
+    }
+
+    private void add(List<String> items, List<Runnable> actions, int label, Runnable action) {
+        items.add(getString(label));
+        actions.add(action);
+    }
 
     @Override public void onMoved(List<Channel> order, Channel inFolder) {
         if (inFolder != null) {
@@ -179,25 +222,22 @@ public final class MainActivity extends Activity implements WiiMenuView.Callback
 
     private void pickFolder(AppEntry app) {
         List<Folders.Folder> existing = new ArrayList<>(repo.folders().all());
-        String[] names = new String[existing.size() + 1];
-        for (int i = 0; i < existing.size(); i++) names[i] = existing.get(i).name;
-        names[existing.size()] = getString(R.string.folder_new);
-        new AlertDialog.Builder(this, dialogTheme())
-                .setTitle(R.string.folder_add)
-                .setItems(names, (d, which) -> {
-                    if (which < existing.size()) {
-                        addToFolder(app, existing.get(which), false);
-                    } else {
-                        askName(getString(R.string.folder_default_name), name ->
-                                addToFolder(app, repo.folders().create(name), true));
-                    }
-                })
-                .show();
+        List<String> names = new ArrayList<>();
+        for (Folders.Folder f : existing) names.add(f.name);
+        names.add(getString(R.string.folder_new));
+        menu.showList(getString(R.string.folder_add), names, which -> {
+            if (which < existing.size()) {
+                addToFolder(app, existing.get(which), false);
+            } else {
+                askName(getString(R.string.folder_name), getString(R.string.folder_default_name), name ->
+                        addToFolder(app, repo.folders().create(name), true));
+            }
+        });
     }
 
     /** A new folder takes the app's place on the menu; an existing one just absorbs the app. */
     private void addToFolder(AppEntry app, Folders.Folder folder, boolean isNew) {
-        List<String> keys = AppRepository.keys(menu.visible());
+        List<String> keys = AppRepository.keys(menu.channelsTopLevel());
         int at = keys.indexOf(app.pkg);
         repo.folders().add(folder.id, app.pkg);
         if (isNew && at >= 0) keys.set(at, folder.key()); else keys.remove(app.pkg);
@@ -227,25 +267,9 @@ public final class MainActivity extends Activity implements WiiMenuView.Callback
         reload();
     }
 
-    private interface NameCallback {
-        void onName(String name);
-    }
-
-    private void askName(String initial, NameCallback cb) {
-        AlertDialog.Builder b = new AlertDialog.Builder(this, dialogTheme());
-        EditText input = new EditText(b.getContext()); // dialog context gives text colors that match its background
-        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-        input.setSingleLine(true);
-        input.setText(initial);
-        input.selectAll();
-        b.setTitle(R.string.folder_name)
-                .setView(input)
-                .setPositiveButton(android.R.string.ok, (d, w) -> {
-                    String name = input.getText().toString().trim();
-                    cb.onName(name.isEmpty() ? getString(R.string.folder_default_name) : name);
-                })
-                .setNegativeButton(android.R.string.cancel, null)
-                .show();
+    private void askName(String title, String initial, WiiPrompt.Callback cb) {
+        prompt.show(title, initial, name -> cb.onText(name.isEmpty() ? getString(R.string.folder_default_name) : name),
+                menu::requestFocus);
     }
 
     // ------------------------------------------------------------ theme
@@ -262,10 +286,6 @@ public final class MainActivity extends Activity implements WiiMenuView.Callback
         menu.setPalette(p);
         int[] labels = {R.string.theme_auto, R.string.theme_light, R.string.theme_dark};
         menu.setThemeLabel(getString(labels[prefs.getInt(KEY_THEME, 1)]));
-    }
-
-    private int dialogTheme() {
-        return isDark() ? android.R.style.Theme_DeviceDefault_Dialog_Alert : android.R.style.Theme_DeviceDefault_Light_Dialog_Alert;
     }
 
     // ------------------------------------------------------------ updater callbacks
@@ -298,7 +318,7 @@ public final class MainActivity extends Activity implements WiiMenuView.Callback
         try {
             return "v" + getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
         } catch (PackageManager.NameNotFoundException e) {
-            return "0";
+            return "v0";
         }
     }
 }

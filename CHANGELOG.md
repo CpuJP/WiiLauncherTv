@@ -2,6 +2,30 @@
 
 All notable changes are listed here. Format: [Keep a Changelog](https://keepachangelog.com/), versions: [SemVer](https://semver.org/).
 
+## [1.3.0] - 2026-10-22
+
+### Added
+- **Input list in the Wii settings style**:
+  - The mail button lists the TV's physical inputs (TV, HDMI 1, HDMI 2, HDMI 3…) by their names on the TV.
+  - The list uses the Wii look: dark striped screen, title tab, white pills with orange selection corners, Back / OK.
+  - Picking an input switches to it through the standard `TvContract` passthrough intent.
+  - App-provided inputs such as IPTV are left out.
+- **Folder management in the same style**:
+  - Open, Move, Rename, Take apps out (pick which) and Delete folder, with a confirmation step.
+  - These options also work from inside the folder. A Wii-style text screen is used for names.
+- **Channel preview**: blue arrows on both sides switch to the previous or next channel without leaving the preview. The buttons sit on the warm gray rounded panel.
+
+### Changed
+- Wii Remote hand redrawn: white with a thick black outline, a blue palm and a white "1"; the fist is white with a blue "1".
+- While dragging, the other channels fade back and the grabbed channel becomes a small glossy blue box under the fist.
+- Channel frames have soft, continuous corners and a white inner rim.
+- Clock digits are single hollow glyphs, as on the Wii Menu.
+- The left button shows a settings gear.
+- Page and list arrows are glossy blue triangles.
+
+### Fixed
+- Smooth scrolling with the new frames: the frames and the hand are pre-rendered at screen resolution. The first build of the soft corners dropped about half of the frames; the pre-rendered version drops about 4%.
+
 ## [1.2.1] - 2026-10-22
 
 ### Fixed

@@ -9,7 +9,6 @@
     <string name="folder_name">Folder name</string>
     <string name="folder_default_name">Folder</string>
     <string name="folder_rename">Rename</string>
-    <string name="folder_ungroup">Ungroup folder</string>
     <string name="folder_take_out">Take out of folder</string>
     <string name="sd_menu_title">SD Card Menu</string>
     <string name="sd_versions">Installed: %1$s · GitHub: %2$s</string>
@@ -29,4 +28,11 @@
     <string name="update_failed">Update failed: %1$s</string>
     <string name="cannot_open">Cannot open</string>
     <string name="home_key_description">Opens the Menu when Home is pressed on the remote and when the Google TV home screen appears. It does not read or store anything on screen.</string>
+    <string name="folder_open">Open</string>
+    <string name="folder_take_apps">Take apps out</string>
+    <string name="folder_delete">Delete folder</string>
+    <string name="folder_delete_confirm">Delete “%1$s”? Its apps go back to the Menu</string>
+    <string name="inputs_title">Inputs</string>
+    <string name="back">Back</string>
+    <string name="ok">OK</string>
 </resources>
