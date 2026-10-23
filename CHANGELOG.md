@@ -2,6 +2,11 @@
 
 All notable changes are listed here. Format: [Keep a Changelog](https://keepachangelog.com/), versions: [SemVer](https://semver.org/).
 
+## [1.0.2] - 2026-10-22
+
+### Added
+- The menu opens on its own after the TV boots. The stock Google TV home starts first, and the menu replaces it as soon as the Home-key service connects.
+
 ## [1.0.1] - 2026-10-22
 
 ### Fixed
