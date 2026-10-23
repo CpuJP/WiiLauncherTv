@@ -12,42 +12,70 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Lists launchable apps (TV apps first) and persists the user's channel order. */
+/** Lists launchable apps, groups them into the user's folders and persists the channel order. */
 final class AppRepository {
     private static final String PREFS = "channels";
     private static final String KEY_ORDER = "order";
+    private static final String KEY_FOLDERS = "folders";
 
     private final Context context;
     private final SharedPreferences prefs;
+    private Folders folders = new Folders();
 
     AppRepository(Context context) {
         this.context = context;
         this.prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
-    List<AppEntry> load() {
+    Folders folders() {
+        return folders;
+    }
+
+    /** Top-level channels in the saved order; new apps go at the end, sorted by name. */
+    List<Channel> load() {
         PackageManager pm = context.getPackageManager();
         Map<String, AppEntry> byPkg = new LinkedHashMap<>();
         collect(pm, Intent.CATEGORY_LEANBACK_LAUNCHER, true, byPkg);
         collect(pm, Intent.CATEGORY_LAUNCHER, false, byPkg); // phone-only apps still deserve a channel
         byPkg.remove(context.getPackageName());
 
+        folders = Folders.parse(prefs.getString(KEY_FOLDERS, ""));
+        folders.prune(byPkg.keySet());
+
         List<AppEntry> sorted = new ArrayList<>(byPkg.values());
         Collator c = Collator.getInstance();
         sorted.sort((a, b) -> c.compare(a.label, b.label));
-        List<String> names = new ArrayList<>();
-        for (AppEntry e : sorted) names.add(e.pkg);
+        List<String> keys = new ArrayList<>();
+        for (AppEntry e : sorted) if (folders.folderOf(e.pkg) == null) keys.add(e.pkg);
+        for (Folders.Folder f : folders.all()) keys.add(f.key());
 
-        List<String> order = AppOrder.merge(AppOrder.split(prefs.getString(KEY_ORDER, "")), names);
-        List<AppEntry> out = new ArrayList<>();
-        for (String p : order) out.add(byPkg.get(p));
+        List<String> order = AppOrder.merge(AppOrder.split(prefs.getString(KEY_ORDER, "")), keys);
+        List<Channel> out = new ArrayList<>();
+        for (String k : order) {
+            Folders.Folder f = folders.get(Folders.idFromKey(k));
+            if (f != null) {
+                List<AppEntry> apps = new ArrayList<>();
+                for (String p : f.pkgs) apps.add(byPkg.get(p));
+                out.add(Channel.of(f, apps));
+            } else {
+                out.add(Channel.of(byPkg.get(k)));
+            }
+        }
         return out;
     }
 
-    void saveOrder(List<AppEntry> apps) {
-        List<String> order = new ArrayList<>();
-        for (AppEntry e : apps) order.add(e.pkg);
-        prefs.edit().putString(KEY_ORDER, AppOrder.join(order)).apply();
+    void saveOrder(List<String> keys) {
+        prefs.edit().putString(KEY_ORDER, AppOrder.join(keys)).apply();
+    }
+
+    void saveFolders() {
+        prefs.edit().putString(KEY_FOLDERS, folders.toJson()).apply();
+    }
+
+    static List<String> keys(List<Channel> channels) {
+        List<String> out = new ArrayList<>();
+        for (Channel ch : channels) out.add(ch.key);
+        return out;
     }
 
     private static void collect(PackageManager pm, String category, boolean leanback, Map<String, AppEntry> out) {

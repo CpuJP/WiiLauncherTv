@@ -52,5 +52,6 @@ The script never touches Live TV, launchers, Play Services, keyboards and input 
 | Private DNS | `tools/tv shell settings delete global private_dns_mode && tools/tv shell settings delete global private_dns_specifier` |
 | Launcher as Home (also revokes `WRITE_SECURE_SETTINGS`) | `tools/restore-home.sh` |
 | Launcher installed | `tools/tv shell pm uninstall io.github.cpujp.wiilauncher` |
+| Alexa uninstalled for user 0 | `tools/tv shell cmd package install-existing com.tcl.smartalexa` |
 | TV Bro installed | `tools/tv shell pm uninstall com.phlox.tvwebbrowser` |
 | **Everything** | `backup/undo.sh` (generated locally on first run, not in the repository) |

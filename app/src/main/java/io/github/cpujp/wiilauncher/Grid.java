@@ -9,6 +9,7 @@ public final class Grid {
     /** Focus targets outside the channel grid. */
     public static final int BTN_SETTINGS = -1;
     public static final int BTN_MAIL = -2;
+    public static final int BTN_SD = -3;
 
     public enum Dir { LEFT, RIGHT, UP, DOWN }
 
@@ -53,10 +54,14 @@ public final class Grid {
     /** Moves focus one step; crossing the left/right edge of the grid flips pages like the Wii menu. */
     public static Focus move(Focus f, Dir d, int pages) {
         if (f.onButton()) {
+            // Bottom bar, left to right: settings, SD card, mail.
             switch (d) {
-                case UP: return new Focus(f.page, f.slot == BTN_SETTINGS ? (ROWS - 1) * COLS : PER_PAGE - 1);
-                case LEFT: return new Focus(f.page, BTN_SETTINGS);
-                case RIGHT: return new Focus(f.page, BTN_MAIL);
+                case UP:
+                    if (f.slot == BTN_SETTINGS) return new Focus(f.page, (ROWS - 1) * COLS);
+                    if (f.slot == BTN_SD) return new Focus(f.page, (ROWS - 1) * COLS + 1);
+                    return new Focus(f.page, PER_PAGE - 1);
+                case LEFT: return new Focus(f.page, f.slot == BTN_MAIL ? BTN_SD : BTN_SETTINGS);
+                case RIGHT: return new Focus(f.page, f.slot == BTN_SETTINGS ? BTN_SD : BTN_MAIL);
                 default: return f;
             }
         }

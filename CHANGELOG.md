@@ -2,6 +2,18 @@
 
 All notable changes are listed here. Format: [Keep a Changelog](https://keepachangelog.com/), versions: [SemVer](https://semver.org/).
 
+## [1.1.0] - 2026-10-22
+
+### Added
+- **Hand cursor**: an original pointing hand that glides to the focused channel or button, which is outlined in blue.
+- **Folders**: *Add to a folder* creates a folder in the app's place or adds the app to an existing one. A folder tile shows a 2×2 mosaic of its apps. Inside a folder you can reorder apps or take them out; on a folder tile you can rename or ungroup it. Back leaves the folder.
+- **SD card button** beside settings: it opens the update menu. That menu shows the installed and GitHub versions and release notes, can check now and install, and switches the theme. The SD card pulses with a red dot when a release is newer.
+- **Light and dark themes**: Automatic (follows the system), Light and Dark.
+- **Mail button** opens the TV's input picker (HDMI, TV, AirPlay…). On TCL it opens the same panel as the remote's input key; on other TVs it falls back to Settings.
+
+### Changed
+- Layout closer to the Wii Menu: four channel columns edge to edge, page arrows on the screen edges, the clock and date (`Lun. 15-03`) inside the bottom bar, and a bar that rises around the round buttons.
+
 ## [1.0.3] - 2026-10-22
 
 ### Added

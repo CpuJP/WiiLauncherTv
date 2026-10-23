@@ -26,7 +26,9 @@ final class Updater {
     private static final long CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L;
 
     interface Listener {
-        void onUpdateAvailable(ReleaseInfo release);
+        /** {@code latest} is null when the repository has no installable release. */
+        void onCheckResult(ReleaseInfo latest, boolean newer);
+        void onCheckFailed(String error);
         void onStatus(String message);
     }
 
@@ -42,15 +44,19 @@ final class Updater {
     }
 
     void checkIfDue(String currentVersion) {
-        long now = System.currentTimeMillis();
-        if (now - lastCheck < CHECK_INTERVAL_MS) return;
-        lastCheck = now;
+        if (System.currentTimeMillis() - lastCheck >= CHECK_INTERVAL_MS) checkNow(currentVersion);
+    }
+
+    void checkNow(String currentVersion) {
+        lastCheck = System.currentTimeMillis();
         io.execute(() -> {
             try {
                 ReleaseInfo r = ReleaseInfo.parse(new String(get(LATEST), StandardCharsets.UTF_8));
-                if (r != null && Versions.isNewer(r.tag, currentVersion)) main.post(() -> listener.onUpdateAvailable(r));
+                boolean newer = r != null && Versions.isNewer(r.tag, currentVersion);
+                main.post(() -> listener.onCheckResult(r, newer));
             } catch (Exception e) {
                 lastCheck = 0; // offline or rate-limited: retry on next resume
+                main.post(() -> listener.onCheckFailed(String.valueOf(e.getMessage())));
             }
         });
     }

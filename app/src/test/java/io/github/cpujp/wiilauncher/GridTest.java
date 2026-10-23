@@ -32,7 +32,12 @@ public class GridTest {
 
     @Test public void buttonsNavigate() {
         Focus settings = new Focus(0, Grid.BTN_SETTINGS);
-        assertEquals(new Focus(0, Grid.BTN_MAIL), Grid.move(settings, Dir.RIGHT, 1));
+        Focus sd = new Focus(0, Grid.BTN_SD);
+        assertEquals(sd, Grid.move(settings, Dir.RIGHT, 1));
+        assertEquals(new Focus(0, Grid.BTN_MAIL), Grid.move(sd, Dir.RIGHT, 1));
+        assertEquals(sd, Grid.move(new Focus(0, Grid.BTN_MAIL), Dir.LEFT, 1));
+        assertEquals(settings, Grid.move(sd, Dir.LEFT, 1));
+        assertEquals(new Focus(0, 9), Grid.move(sd, Dir.UP, 1));
         assertEquals(new Focus(0, 8), Grid.move(settings, Dir.UP, 1));
         assertEquals(new Focus(0, 11), Grid.move(new Focus(0, Grid.BTN_MAIL), Dir.UP, 1));
         assertEquals(-1, settings.index());

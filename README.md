@@ -6,20 +6,23 @@ A light, Wii-inspired home screen for Android TV and Google TV. No ads, no recom
 
 ![Menu](docs/screenshot.png)
 
-| Channel preview | |
-|---|---|
-| ![Preview](docs/preview.png) | Press **OK** on a channel to zoom in, then pick **Start** or **Menu**, like on the Wii. |
+| Dark theme | Folder | Update menu (SD card) |
+|---|---|---|
+| ![Dark](docs/dark.png) | ![Folder](docs/folder.png) | ![SD](docs/sd.png) |
 
 > Not affiliated with Nintendo. No Nintendo assets are used. See [DISCLAIMER.md](DISCLAIMER.md).
 
 ## Features
 
-- **Channel grid**: 4×3 channels per page. TV banners fill the tile; phone apps show their icon on a white channel face. A blue glow pulses on the focused channel, a name bubble shows below it, and the page flips when you cross the grid edge.
+- **Channel grid**: 4×3 channels per page, edge to edge. TV banners fill the tile; phone apps show their icon on the channel face. The page flips when you cross the grid edge.
+- **Hand cursor**: a pointing hand glides to whatever is selected, and the selection is outlined in blue.
 - **Channel preview**: zoom animation with **Menu / Start** buttons.
-- **Bottom bar**: clock, date and page dots. The ⚙ button opens system settings. The ✉ button blinks blue when a new version is published.
+- **Folders**: group channels into folders. A folder tile shows a mosaic of its apps.
+- **Bottom bar**: clock and date. The ⚙ button opens system settings. The SD card opens the update menu and pulses when GitHub has a newer release. The ✉ button opens the TV inputs (HDMI, TV, AirPlay…).
+- **Light and dark themes**: Automatic, Light or Dark, chosen in the SD card menu.
 - **Sounds**: synthesized at runtime, no audio files.
-- **Reordering**: press the Menu key or long-press OK on a channel, then choose *Move left / right* or *App info*.
-- **Self-updating**: checks this repository's [Releases](https://github.com/CpuJP/WiiLauncherTv/releases) and installs through the system installer, so the TV asks you to confirm.
+- **Options**: press the Menu key (☰) or long-press OK on a channel. You get *Move left / right*, *Add to a folder*, *Take out of folder*, *Rename*, *Ungroup* and *App info*.
+- **Self-updating**: checks this repository's [Releases](https://github.com/CpuJP/WiiLauncherTv/releases) every 6 hours, or on demand from the SD card menu. It installs through the system installer, so the TV asks you to confirm.
 - **Sharp at any resolution**: everything is laid out in a virtual 1920×1080 space and scaled to the real surface. Shapes and text are drawn as vectors and banners are decoded at the final pixel size, so a 4K surface renders natively at 4K.
 - **Light on the device**: one Activity and one View, plain Java without AndroidX. Animations stop when the menu is not visible, and at most 24 banners are cached.
 - **Keeps your TV's functions**: every installed app is listed, including Live TV and the vendor apps. Search and mic open the assistant, and Settings is one press away.
@@ -89,7 +92,7 @@ tools/                  ADB helpers: monitor, debloat, deploy, release, YouTube
 
 **Wii Launcher TV** reemplaza la pantalla de inicio de tu Android TV / Google TV con un menú inspirado en el de Wii:
 
-- Canales en grilla de 4×3.
+- Canales en grilla de 4×3, con una mano como cursor y carpetas.
 - Vista previa con **Menú / Iniciar**.
 - Reloj y fecha.
 - Botón ⚙ de ajustes.
@@ -107,7 +110,9 @@ No muestra anuncios, no tiene dependencias y pesa unos 55 KB.
 | OK | Abrir la vista previa. Después elige **Iniciar**. |
 | Mantener OK o tecla Menú | Mover el canal o ver la información de la app. |
 | Abajo desde la última fila | Ir a los botones ⚙ y ✉. |
-| Atrás | Volver a la primera página. |
+| Atrás | Salir de la carpeta o volver a la primera página. |
+| Botón ✉ | Entradas del TV (HDMI, TV, AirPlay…). |
+| Tarjeta SD | Actualizaciones desde GitHub y tema claro u oscuro. |
 | Inicio | Volver al menú desde cualquier app. |
 
 Comandos de ADB, limpieza y deshacer: [docs/CHEATSHEET.md](docs/CHEATSHEET.md).
