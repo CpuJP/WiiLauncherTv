@@ -22,4 +22,6 @@ To use a private key, set the `WII_KEYSTORE`, `WII_KEYSTORE_PASSWORD`, `WII_KEY_
 |---|---|
 | `INTERNET` | Checks this repository for updates. |
 | `REQUEST_INSTALL_PACKAGES` | Hands a downloaded update to the system installer. |
-| Accessibility service (`HomeKeyService`) | Google TV ignores the default-home setting, so the Home key is intercepted to open this launcher. The service only filters key events: it requests no window content and stores nothing. |
+| `WRITE_SECURE_SETTINGS` (granted only over ADB) | Lets `HomeGuard` add `HomeKeyService` back to the enabled accessibility services if Android removes it. It writes only that setting and `accessibility_enabled`. Revoke it with `adb shell pm revoke io.github.cpujp.wiilauncher android.permission.WRITE_SECURE_SETTINGS`. |
+| `RECEIVE_BOOT_COMPLETED` | Runs `HomeGuard` at boot. |
+| Accessibility service (`HomeKeyService`) | Google TV ignores the default-home setting, so the Home key is intercepted to open this launcher. The service filters key events and receives only window-change events from the stock launcher (`packageNames` filter), so it can replace the stock home when that home appears. It cannot read window content (`canRetrieveWindowContent=false`) and stores nothing. |

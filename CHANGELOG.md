@@ -2,6 +2,12 @@
 
 All notable changes are listed here. Format: [Keep a Changelog](https://keepachangelog.com/), versions: [SemVer](https://semver.org/).
 
+## [1.0.3] - 2026-10-22
+
+### Added
+- The menu replaces the stock Google TV home whenever that home appears: at boot, on Back out of an app, or from vendor shortcuts. Other stock-launcher screens, such as profiles, stay usable.
+- `HomeGuard` turns the Home-key service back on when Android drops it, for example after a force-stop. It runs when the menu opens, at boot and after an update. It needs `WRITE_SECURE_SETTINGS`, which `tools/setup-tv.sh` grants once over ADB.
+
 ## [1.0.2] - 2026-10-22
 
 ### Added

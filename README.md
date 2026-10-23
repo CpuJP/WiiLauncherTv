@@ -41,7 +41,9 @@ To get the stock home back, run `tools/restore-home.sh`.
 
 ### Why an accessibility service?
 
-Google TV's launcher has a higher system priority than any user-selected home, so it still opens when you press **Home**. `HomeKeyService` filters only the Home key and opens this launcher instead. It cannot read the screen and stores nothing. See [SECURITY.md](SECURITY.md).
+Google TV's launcher has a higher system priority than any user-selected home, so it still opens when you press **Home**. `HomeKeyService` intercepts the Home key and opens this launcher. It also replaces the stock home whenever that home appears anyway, for example at boot or on Back out of an app. It cannot read the screen and stores nothing.
+
+Android turns accessibility services off when their app is force-stopped. `tools/setup-tv.sh` therefore grants `WRITE_SECURE_SETTINGS` over ADB, and the launcher uses it to turn its own service back on. See [SECURITY.md](SECURITY.md).
 
 ## Build
 

@@ -31,6 +31,8 @@ Set your TV once per shell: `export TV=192.168.1.50:5555` (the default is in `to
 | Publish a new version | `tools/release.sh 1.1.0` |
 | What is playing | `adb -s $TV shell dumpsys media_session \| grep -E "package=\|state="` (`state=3` = playing) |
 
+`uiautomator dump` and `uiautomator events` pause other accessibility services while they run, so the Home redirect does not work during them.
+
 Screenshots of a playing video come out black because of DRM. Use `dumpsys media_session` to check playback.
 
 ## 3. Cleanup (debloat)
@@ -48,7 +50,7 @@ The script never touches Live TV, launchers, Play Services, keyboards and input 
 | Disabled package | `tools/tv shell pm enable --user 0 <pkg>` |
 | Animations 0.5 | `tools/tv shell settings put global window_animation_scale 1.0` (same for `transition_animation_scale`; `settings delete global animator_duration_scale`) |
 | Private DNS | `tools/tv shell settings delete global private_dns_mode && tools/tv shell settings delete global private_dns_specifier` |
-| Launcher as Home | `tools/restore-home.sh` |
+| Launcher as Home (also revokes `WRITE_SECURE_SETTINGS`) | `tools/restore-home.sh` |
 | Launcher installed | `tools/tv shell pm uninstall io.github.cpujp.wiilauncher` |
 | TV Bro installed | `tools/tv shell pm uninstall com.phlox.tvwebbrowser` |
 | **Everything** | `backup/undo.sh` (generated locally on first run, not in the repository) |

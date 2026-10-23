@@ -49,6 +49,7 @@ public final class MainActivity extends Activity implements WiiMenuView.Callback
 
     @Override protected void onResume() {
         super.onResume();
+        HomeGuard.ensureEnabled(this);
         updater.checkIfDue(versionName());
     }
 
