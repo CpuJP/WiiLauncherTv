@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">Wii Launcher TV</string>
+    <string name="menu">Menú</string>
+    <string name="start">Iniciar</string>
+    <string name="move_left">Mover a la izquierda</string>
+    <string name="move_right">Mover a la derecha</string>
+    <string name="app_info">Información de la app</string>
+    <string name="no_messages">No hay mensajes nuevos</string>
+    <string name="update_title">Nueva versión %1$s</string>
+    <string name="update_body">Hay una actualización del menú disponible.</string>
+    <string name="install">Instalar</string>
+    <string name="later">Más tarde</string>
+    <string name="update_downloading">Descargando %1$s…</string>
+    <string name="update_failed">No se pudo actualizar: %1$s</string>
+    <string name="cannot_open">No se puede abrir</string>
+    <string name="home_key_description">Abre el Menú al presionar Inicio en el control remoto. No lee ni guarda nada de la pantalla.</string>
+</resources>

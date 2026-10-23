@@ -1,0 +1,51 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace = "io.github.cpujp.wiilauncher"
+    compileSdk = 34
+
+    defaultConfig {
+        applicationId = "io.github.cpujp.wiilauncher"
+        minSdk = 31
+        targetSdk = 34
+        versionCode = Integer.parseInt(project.property("VERSION_CODE"))
+        versionName = project.property("VERSION_NAME")
+    }
+
+    signingConfigs {
+        release {
+            // Public sideload key (see SECURITY.md). CI can override it with repository secrets.
+            def ks = System.getenv("WII_KEYSTORE") ?: "${rootDir}/signing/sideload.jks"
+            storeFile = file(ks)
+            storePassword = System.getenv("WII_KEYSTORE_PASSWORD") ?: "wiilauncher"
+            keyAlias = System.getenv("WII_KEY_ALIAS") ?: "wiilauncher"
+            keyPassword = System.getenv("WII_KEY_PASSWORD") ?: "wiilauncher"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled = true
+            shrinkResources = true
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            signingConfig = signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    lint {
+        abortOnError = true
+        disable += ["ExpiredTargetSdkVersion", "OldTargetApi", "GradleDependency", "AndroidGradlePluginVersion"]
+    }
+}
+
+dependencies {
+    testImplementation "junit:junit:4.13.2"
+    testImplementation "org.json:json:20240303"
+}

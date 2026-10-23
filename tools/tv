@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Run one adb command against the TV, logging it with a timestamp.
+# logcat is captured only while the command runs. Watch live with: tail -f tools/monitor.log
+ADB="${ADB:-$HOME/Android/Sdk/platform-tools/adb}"
+TV="${TV:-192.168.80.21:5555}"
+LOG="$(dirname "$0")/monitor.log"
+echo "[$(date '+%F %T')] \$ adb $*" | tee -a "$LOG"
+LC_TMP=$(mktemp)
+"$ADB" -s "$TV" logcat -v time -T 1 >"$LC_TMP" 2>/dev/null </dev/null &
+LC=$!
+"$ADB" -s "$TV" "$@" 2>&1 | tee -a "$LOG"
+rc=${PIPESTATUS[0]}
+sleep 0.3; kill $LC 2>/dev/null; wait $LC 2>/dev/null
+sed 's/^/    logcat| /' "$LC_TMP" >> "$LOG"; rm -f "$LC_TMP"
+echo "[$(date '+%F %T')] exit=$rc" | tee -a "$LOG"
+exit $rc
