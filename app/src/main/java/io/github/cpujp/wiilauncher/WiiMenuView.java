@@ -67,6 +67,7 @@ final class WiiMenuView extends View {
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF rect = new RectF();
     private final RectF tile = new RectF();
+    private final android.text.TextPaint labelPaint = new android.text.TextPaint();
     private final Path path = new Path();
     private float[] stripes = new float[0];
     private Shader barShader, tileShader;
@@ -76,7 +77,7 @@ final class WiiMenuView extends View {
     private float shownPage;          // animated page position for the slide transition
     private ValueAnimator pageAnim;
     private float pulse;              // 0..1 focus glow
-    private final ValueAnimator pulseAnim;
+    private boolean pulsing;
     private boolean mailBlink;
     private String status;
 
@@ -96,6 +97,15 @@ final class WiiMenuView extends View {
         }
     };
 
+    // ~15 fps is plenty for a slow glow and keeps the GPU mostly idle on a 2 GB TV.
+    private final Runnable pulseTick = new Runnable() {
+        @Override public void run() {
+            pulse = (float) (0.5 + 0.5 * Math.sin(System.currentTimeMillis() * (2 * Math.PI / 2800.0)));
+            invalidate();
+            main.postDelayed(this, 66);
+        }
+    };
+
     WiiMenuView(Context ctx, Callbacks callbacks, Sfx sfx) {
         super(ctx);
         this.callbacks = callbacks;
@@ -104,14 +114,6 @@ final class WiiMenuView extends View {
         setFocusable(true);
         setFocusableInTouchMode(true);
         text.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
-        pulseAnim = ValueAnimator.ofFloat(0f, 1f);
-        pulseAnim.setDuration(1400);
-        pulseAnim.setRepeatMode(ValueAnimator.REVERSE);
-        pulseAnim.setRepeatCount(ValueAnimator.INFINITE);
-        pulseAnim.addUpdateListener(a -> {
-            pulse = (float) a.getAnimatedValue();
-            invalidate();
-        });
     }
 
     void setApps(List<AppEntry> list) {
@@ -152,12 +154,12 @@ final class WiiMenuView extends View {
 
     @Override protected void onAttachedToWindow() {
         super.onAttachedToWindow();
-        pulseAnim.start();
+        setPulsing(true);
         clockTick.run();
     }
 
     @Override protected void onDetachedFromWindow() {
-        pulseAnim.cancel();
+        setPulsing(false);
         main.removeCallbacks(clockTick);
         loader.shutdownNow();
         super.onDetachedFromWindow();
@@ -166,11 +168,28 @@ final class WiiMenuView extends View {
     @Override protected void onWindowVisibilityChanged(int visibility) {
         super.onWindowVisibilityChanged(visibility);
         // No animation work while another app is in front.
-        if (visibility == VISIBLE) {
-            if (!pulseAnim.isStarted()) pulseAnim.start();
-        } else {
-            pulseAnim.cancel();
+        setPulsing(visibility == VISIBLE);
+    }
+
+    private void setPulsing(boolean on) {
+        if (on == pulsing) return;
+        pulsing = on;
+        main.removeCallbacks(pulseTick);
+        if (on) pulseTick.run();
+    }
+
+    /** Soft glow from stacked translucent strokes; avoids per-frame shadow textures. */
+    private void glow(Canvas c, RectF r, float radius, float spread, int alpha) {
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.STROKE);
+        for (int i = 3; i >= 1; i--) {
+            float d = spread * i / 3f;
+            paint.setStrokeWidth(spread / 3f + 2f);
+            paint.setColor(BLUE);
+            paint.setAlpha(alpha / (i + 1));
+            c.drawRoundRect(r.left - d, r.top - d, r.right + d, r.bottom + d, radius + d, radius + d, paint);
         }
+        paint.setAlpha(255);
     }
 
     @Override protected void onSizeChanged(int w, int h, int ow, int oh) {
@@ -251,22 +270,15 @@ final class WiiMenuView extends View {
             paint.setShader(null);
             c.restore();
             Bitmap b = banner(app);
-            if (b != null) {
-                c.save();
-                path.reset();
-                path.addRoundRect(r.left + 8, r.top + 8, r.right - 8, r.bottom - 8, RADIUS - 8, RADIUS - 8, Path.Direction.CW);
-                c.clipPath(path);
-                fitInto(c, b, r.left + 8, r.top + 8, r.right - 8, r.bottom - 8, app);
-                c.restore();
-            }
+            if (b != null) fitInto(c, b, r.left + 8, r.top + 8, r.right - 8, r.bottom - 8, app);
         }
         paint.setStyle(Paint.Style.STROKE);
         if (focused) {
+            glow(c, r, RADIUS, 18f, (int) (90 + 130 * pulse));
+            paint.setStyle(Paint.Style.STROKE);
             paint.setColor(BLUE);
             paint.setStrokeWidth(7f);
-            paint.setShadowLayer(14f + 10f * pulse, 0, 0, Color.argb(200, 0x34, 0xBE, 0xED));
             c.drawRoundRect(r, RADIUS, RADIUS, paint);
-            paint.clearShadowLayer();
         } else {
             paint.setColor(Color.rgb(0xC8, 0xCB, 0xD2));
             paint.setStrokeWidth(3f);
@@ -289,16 +301,16 @@ final class WiiMenuView extends View {
     private void drawLabel(Canvas c, RectF r, String label) {
         text.setTextSize(40f);
         text.setColor(Color.rgb(0x4A, 0x4F, 0x58));
-        String l = TextUtils.ellipsize(label, new android.text.TextPaint(text), 560f, TextUtils.TruncateAt.END).toString();
+        String l = TextUtils.ellipsize(label, labelPaint(), 560f, TextUtils.TruncateAt.END).toString();
         float w = text.measureText(l) + 60f;
         float cx = Math.max(w / 2 + 20, Math.min(VW - w / 2 - 20, r.centerX()));
         float top = r.bottom - 30f;
         paint.setShader(null);
         paint.setStyle(Paint.Style.FILL);
+        paint.setColor(Color.argb(40, 0, 0, 0));
+        c.drawRoundRect(cx - w / 2, top + 4f, cx + w / 2, top + 70f, 33f, 33f, paint);
         paint.setColor(Color.WHITE);
-        paint.setShadowLayer(10f, 0, 3f, Color.argb(90, 0, 0, 0));
         c.drawRoundRect(cx - w / 2, top, cx + w / 2, top + 66f, 33f, 33f, paint);
-        paint.clearShadowLayer();
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(3f);
         paint.setColor(BLUE);
@@ -317,10 +329,10 @@ final class WiiMenuView extends View {
     }
 
     private void arrow(Canvas c, float cx, float cy, int dir) {
+        paint.setColor(Color.argb(40, 0, 0, 0));
+        c.drawCircle(cx, cy + 3f, 34f, paint);
         paint.setColor(Color.WHITE);
-        paint.setShadowLayer(8f, 0, 2f, Color.argb(80, 0, 0, 0));
         c.drawCircle(cx, cy, 34f, paint);
-        paint.clearShadowLayer();
         paint.setColor(BLUE);
         path.reset();
         path.moveTo(cx + dir * 14f, cy);
@@ -342,9 +354,7 @@ final class WiiMenuView extends View {
         path.close();
         paint.setStyle(Paint.Style.FILL);
         paint.setShader(barShader);
-        paint.setShadowLayer(12f, 0, -2f, Color.argb(60, 0, 0, 0));
         c.drawPath(path, paint);
-        paint.clearShadowLayer();
         paint.setShader(null);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(4f);
@@ -403,15 +413,22 @@ final class WiiMenuView extends View {
     private void roundButton(Canvas c, float cx, boolean focused, boolean glow) {
         paint.setShader(null);
         paint.setStyle(Paint.Style.FILL);
+        float r = BTN_R * (focused ? 1.06f : 1f);
+        if (focused) {
+            rect.set(cx - r, BTN_Y - r, cx + r, BTN_Y + r);
+            glow(c, rect, r, 20f, (int) (90 + 130 * pulse));
+            paint.setStyle(Paint.Style.FILL);
+        } else {
+            paint.setColor(Color.argb(40, 0, 0, 0));
+            c.drawCircle(cx, BTN_Y + 4f, r, paint);
+        }
         paint.setColor(Color.WHITE);
-        paint.setShadowLayer(focused ? 22f : 10f, 0, 3f, focused ? Color.argb(200, 0x34, 0xBE, 0xED) : Color.argb(90, 0, 0, 0));
-        c.drawCircle(cx, BTN_Y, BTN_R * (focused ? 1.06f : 1f), paint);
-        paint.clearShadowLayer();
+        c.drawCircle(cx, BTN_Y, r, paint);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(focused ? 7f : 4f);
         paint.setColor(focused || glow ? BLUE : Color.rgb(0xB9, 0xBD, 0xC5));
         if (glow && !focused) paint.setAlpha((int) (110 + 145 * pulse));
-        c.drawCircle(cx, BTN_Y, BTN_R * (focused ? 1.06f : 1f), paint);
+        c.drawCircle(cx, BTN_Y, r, paint);
         paint.setAlpha(255);
     }
 
@@ -459,12 +476,7 @@ final class WiiMenuView extends View {
             float bw = 1152f, bh = 648f;
             if (!(previewApp.leanback && previewBanner.getWidth() > previewBanner.getHeight())) bw = bh = 440f;
             rect.set((VW - bw) / 2, 400f - bh / 2, (VW + bw) / 2, 400f + bh / 2);
-            c.save();
-            path.reset();
-            path.addRoundRect(rect, 24f, 24f, Path.Direction.CW);
-            c.clipPath(path);
             c.drawBitmap(previewBanner, null, rect, paint);
-            c.restore();
             paint.setAlpha(255);
         }
         text.setTextAlign(Paint.Align.CENTER);
@@ -482,10 +494,12 @@ final class WiiMenuView extends View {
     private void pillButton(Canvas c, float cx, String label, boolean focused, int alpha) {
         rect.set(cx - 250f, 920f, cx + 250f, 1040f);
         paint.setStyle(Paint.Style.FILL);
+        if (focused) {
+            glow(c, rect, 60f, 18f, (int) ((90 + 130 * pulse) * alpha / 255));
+            paint.setStyle(Paint.Style.FILL);
+        }
         paint.setColor(Color.argb(alpha, 0xFA, 0xFA, 0xFB));
-        if (focused) paint.setShadowLayer(18f + 8f * pulse, 0, 0, Color.argb(alpha, 0x34, 0xBE, 0xED));
         c.drawRoundRect(rect, 60f, 60f, paint);
-        paint.clearShadowLayer();
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(focused ? 7f : 3f);
         paint.setColor(focused ? BLUE : Color.rgb(0xB9, 0xBD, 0xC5));
@@ -495,6 +509,11 @@ final class WiiMenuView extends View {
         text.setTextSize(50f);
         text.setColor(Color.argb(alpha, 0x4A, 0x4F, 0x58));
         c.drawText(label, cx, 998f, text);
+    }
+
+    private android.text.TextPaint labelPaint() {
+        labelPaint.set(text);
+        return labelPaint;
     }
 
     private static float lerp(float a, float b, float t) {
@@ -529,8 +548,16 @@ final class WiiMenuView extends View {
             if (!isBanner) w = h = Math.round(h * 0.7f);
             Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
             Canvas c = new Canvas(bmp);
+            if (isBanner) {
+                // Round the corners once here instead of clipping on every frame.
+                float r = h * 0.1f;
+                Path clip = new Path();
+                clip.addRoundRect(0, 0, w, h, r, r, Path.Direction.CW);
+                c.clipPath(clip);
+            }
             d.setBounds(0, 0, w, h);
             d.draw(c);
+            bmp.prepareToDraw();
             return bmp;
         } catch (RuntimeException | OutOfMemoryError e) {
             return null;

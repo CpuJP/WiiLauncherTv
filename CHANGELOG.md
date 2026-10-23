@@ -2,6 +2,11 @@
 
 All notable changes are listed here. Format: [Keep a Changelog](https://keepachangelog.com/), versions: [SemVer](https://semver.org/).
 
+## [1.0.1] - 2026-10-22
+
+### Fixed
+- Graphics memory grew without limit (262 MB PSS). The animated shadow radius made a new shadow texture on every frame. The focus glow now uses translucent strokes, banner corners are rounded once at load time, and the glow redraws at about 15 fps. Memory is now stable at about 60 MB PSS (stock Google TV launcher: about 100 MB).
+
 ## [1.0.0] - 2026-10-22
 
 ### Added
