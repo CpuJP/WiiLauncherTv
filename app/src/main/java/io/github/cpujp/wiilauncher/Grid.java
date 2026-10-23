@@ -51,6 +51,17 @@ public final class Grid {
         return Math.max(1, (channels + PER_PAGE - 1) / PER_PAGE);
     }
 
+    /**
+     * Where a grabbed channel goes when dragged one step: like {@link #move} but it never leaves the
+     * channel list for the bottom buttons or empty slots. Returns the target index or -1.
+     */
+    public static int dragTarget(Focus f, Dir d, int channels) {
+        Focus next = move(f, d, pageCount(channels) + 1); // dragging may open a new page at the end
+        if (next.onButton() || next.equals(f)) return -1;
+        int idx = next.index();
+        return idx < channels ? idx : (f.index() < channels - 1 ? channels - 1 : -1);
+    }
+
     /** Moves focus one step; crossing the left/right edge of the grid flips pages like the Wii menu. */
     public static Focus move(Focus f, Dir d, int pages) {
         if (f.onButton()) {

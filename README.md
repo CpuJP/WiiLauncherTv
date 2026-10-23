@@ -21,7 +21,8 @@ A light, Wii-inspired home screen for Android TV and Google TV. No ads, no recom
 - **Bottom bar**: clock and date. The ⚙ button opens system settings. The SD card opens the update menu and pulses when GitHub has a newer release. The ✉ button opens the TV inputs (HDMI, TV, AirPlay…).
 - **Light and dark themes**: Automatic, Light or Dark, chosen in the SD card menu.
 - **Sounds**: synthesized at runtime, no audio files.
-- **Options**: press the Menu key (☰) or long-press OK on a channel. You get *Move left / right*, *Add to a folder*, *Take out of folder*, *Rename*, *Ungroup* and *App info*.
+- **Drag channels**: hold OK on a channel. The hand closes into a fist; move the channel with the D-pad and drop it with OK.
+- **Options**: press the Menu key (☰) for *Move*, *Add to a folder*, *Take out of folder*, *Rename*, *Ungroup* and *App info*.
 - **Self-updating**: checks this repository's [Releases](https://github.com/CpuJP/WiiLauncherTv/releases) every 6 hours, or on demand from the SD card menu. It installs through the system installer, so the TV asks you to confirm.
 - **Sharp at any resolution**: everything is laid out in a virtual 1920×1080 space and scaled to the real surface. Shapes and text are drawn as vectors and banners are decoded at the final pixel size, so a 4K surface renders natively at 4K.
 - **Light on the device**: one Activity and one View, plain Java without AndroidX. Animations stop when the menu is not visible, and at most 24 banners are cached.
@@ -108,7 +109,8 @@ No muestra anuncios, no tiene dependencias y pesa unos 55 KB.
 |---|---|
 | Flechas | Moverse entre canales. En el borde cambia de página. |
 | OK | Abrir la vista previa. Después elige **Iniciar**. |
-| Mantener OK o tecla Menú | Mover el canal o ver la información de la app. |
+| Mantener OK | Agarrar el canal y arrastrarlo con las flechas; OK lo suelta. |
+| Tecla ☰ | Opciones: mover, carpetas, información de la app. |
 | Abajo desde la última fila | Ir a los botones ⚙ y ✉. |
 | Atrás | Salir de la carpeta o volver a la primera página. |
 | Botón ✉ | Entradas del TV (HDMI, TV, AirPlay…). |

@@ -1,10 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name" translatable="false">Wii Launcher TV</string>
-    <string name="menu">Menú</string>
-    <string name="start">Iniciar</string>
-    <string name="move_left">Mover a la izquierda</string>
-    <string name="move_right">Mover a la derecha</string>
+    <string name="menu">Menú Wii</string>
+    <string name="start">Comenzar</string>
+    <string name="move">Mover</string>
     <string name="app_info">Información de la app</string>
     <string name="folder_add">Añadir a una carpeta</string>
     <string name="folder_new">Nueva carpeta…</string>
@@ -13,7 +12,7 @@
     <string name="folder_rename">Cambiar nombre</string>
     <string name="folder_ungroup">Deshacer carpeta</string>
     <string name="folder_take_out">Sacar de la carpeta</string>
-    <string name="sd_menu_title">Menú de actualizaciones</string>
+    <string name="sd_menu_title">Menú tarjeta SD</string>
     <string name="sd_versions">Instalada: %1$s · GitHub: %2$s</string>
     <string name="sd_check">Buscar actualizaciones</string>
     <string name="sd_install">Instalar %1$s</string>

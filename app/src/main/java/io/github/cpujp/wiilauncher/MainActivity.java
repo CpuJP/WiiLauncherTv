@@ -25,7 +25,7 @@ import java.util.List;
 /** HOME activity: hosts the menu view and routes its actions to the system. */
 public final class MainActivity extends Activity implements WiiMenuView.Callbacks, Updater.Listener {
     private static final String PREFS = "ui";
-    private static final String KEY_THEME = "theme"; // 0 = follow system, 1 = light, 2 = dark
+    private static final String KEY_THEME = "theme"; // 0 = follow system, 1 = light (default, as on the Wii), 2 = dark
 
     // TCL's input panel (HDMI, TV, AirPlay...), the same one the remote's input key opens.
     private static final ComponentName TCL_INPUTS = new ComponentName("com.tcl.suspension", "com.tcl.suspension.DismissService");
@@ -126,17 +126,15 @@ public final class MainActivity extends Activity implements WiiMenuView.Callback
     }
 
     @Override public void onCycleTheme() {
-        prefs.edit().putInt(KEY_THEME, (prefs.getInt(KEY_THEME, 0) + 1) % 3).apply();
+        prefs.edit().putInt(KEY_THEME, (prefs.getInt(KEY_THEME, 1) + 1) % 3).apply();
         applyTheme();
     }
 
     @Override public void onOptions(Channel ch, int index, Channel inFolder) {
         List<String> items = new ArrayList<>();
         List<Runnable> actions = new ArrayList<>();
-        items.add(getString(R.string.move_left));
-        actions.add(() -> move(ch, index, -1, inFolder));
-        items.add(getString(R.string.move_right));
-        actions.add(() -> move(ch, index, 1, inFolder));
+        items.add(getString(R.string.move));
+        actions.add(menu::startGrab);
         if (ch.isFolder()) {
             items.add(getString(R.string.folder_rename));
             actions.add(() -> askName(ch.label, name -> {
@@ -166,18 +164,17 @@ public final class MainActivity extends Activity implements WiiMenuView.Callback
 
     // ------------------------------------------------------------ channel order and folders
 
-    private void move(Channel ch, int index, int delta, Channel inFolder) {
+    @Override public void onMoved(List<Channel> order, Channel inFolder) {
         if (inFolder != null) {
-            List<String> pkgs = inFolder.folder.pkgs;
-            if (AppOrder.move(pkgs, index, delta) == index) return;
+            Folders.Folder f = repo.folders().get(inFolder.folder.id);
+            if (f == null) return;
+            f.pkgs.clear();
+            f.pkgs.addAll(AppRepository.keys(order));
             repo.saveFolders();
         } else {
-            List<String> keys = AppRepository.keys(menu.visible());
-            if (AppOrder.move(keys, index, delta) == index) return;
-            repo.saveOrder(keys);
+            repo.saveOrder(AppRepository.keys(order));
         }
         reload();
-        menu.focusIndex(index + delta);
     }
 
     private void pickFolder(AppEntry app) {
@@ -254,7 +251,7 @@ public final class MainActivity extends Activity implements WiiMenuView.Callback
     // ------------------------------------------------------------ theme
 
     private boolean isDark() {
-        int mode = prefs.getInt(KEY_THEME, 0);
+        int mode = prefs.getInt(KEY_THEME, 1);
         if (mode != 0) return mode == 2;
         return (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
     }
@@ -264,7 +261,7 @@ public final class MainActivity extends Activity implements WiiMenuView.Callback
         getWindow().setBackgroundDrawable(new ColorDrawable(p.bg));
         menu.setPalette(p);
         int[] labels = {R.string.theme_auto, R.string.theme_light, R.string.theme_dark};
-        menu.setThemeLabel(getString(labels[prefs.getInt(KEY_THEME, 0)]));
+        menu.setThemeLabel(getString(labels[prefs.getInt(KEY_THEME, 1)]));
     }
 
     private int dialogTheme() {

@@ -2,6 +2,23 @@
 
 All notable changes are listed here. Format: [Keep a Changelog](https://keepachangelog.com/), versions: [SemVer](https://semver.org/).
 
+## [1.2.0] - 2026-10-22
+
+### Changed
+- Layout measured from a 1920×1080 capture of the Wii Menu:
+  - 382×208 channels, with the next page peeking in at the right edge.
+  - Outlined blue page arrows.
+  - A bar with a dip in the middle; the clock sits in the dip and the date sits on the bar.
+  - Round **Wii** and mail buttons in recessed wells, and the SD card icon.
+- Clock: hollow segmented digits with a blinking colon and AM/PM.
+- Hand cursor: Wii Remote style, white with a black outline, pale blue toward the wrist and a blue "1". It closes into a fist while OK is held or a channel is being dragged.
+- Channel names no longer pop up on hover, as on the Wii.
+- Preview buttons read **Menú Wii / Comenzar**, and the SD button opens the **Menú tarjeta SD**.
+- The light theme is the default.
+
+### Added
+- Dragging channels: hold OK (or choose *Move* from ☰) to pick up a channel. Move it with the D-pad, across pages too, and drop it with OK.
+
 ## [1.1.0] - 2026-10-22
 
 ### Added

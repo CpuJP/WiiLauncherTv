@@ -46,4 +46,13 @@ public class GridTest {
     @Test public void indexSpansPages() {
         assertEquals(13, new Focus(1, 1).index());
     }
+
+    @Test public void dragStaysInsideTheList() {
+        assertEquals(1, Grid.dragTarget(new Focus(0, 0), Dir.RIGHT, 5));
+        assertEquals(4, Grid.dragTarget(new Focus(0, 0), Dir.DOWN, 5));
+        assertEquals(-1, Grid.dragTarget(new Focus(0, 8), Dir.DOWN, 12)); // would hit the bottom buttons
+        assertEquals(-1, Grid.dragTarget(new Focus(0, 0), Dir.LEFT, 5));
+        assertEquals(4, Grid.dragTarget(new Focus(0, 1), Dir.DOWN, 5)); // empty slot clamps to the last channel
+        assertEquals(12, Grid.dragTarget(new Focus(0, 11), Dir.RIGHT, 13)); // crosses to the next page
+    }
 }

@@ -26,6 +26,7 @@ import android.view.animation.DecelerateInterpolator;
 
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -35,13 +36,15 @@ import java.util.concurrent.Executors;
 
 /**
  * The whole menu is drawn on one canvas in a virtual 1920x1080 space scaled to the real surface,
- * so it stays sharp at 1080p and 4K without bitmaps for the chrome.
+ * so it stays sharp at 1080p and 4K without bitmaps for the chrome. Geometry is measured from a
+ * 1920x1080 capture of the Wii Menu.
  */
 final class WiiMenuView extends View {
 
     interface Callbacks {
         void onLaunch(AppEntry app);
         void onOptions(Channel channel, int index, Channel inFolder);
+        void onMoved(List<Channel> order, Channel inFolder);
         void onSettings();
         void onInputs();
         void onCheckUpdates();
@@ -49,15 +52,17 @@ final class WiiMenuView extends View {
         void onCycleTheme();
     }
 
-    // Layout in virtual units (1920x1080), proportioned after the Wii Menu: four columns edge to edge.
+    // Layout in virtual units (1920x1080).
     private static final float VW = 1920f, VH = 1080f;
-    private static final float TILE_W = 452f, TILE_H = 242f, GAP_X = 18f, GAP_Y = 16f;
-    private static final float GRID_LEFT = (VW - (Grid.COLS * TILE_W + (Grid.COLS - 1) * GAP_X)) / 2f;
-    private static final float GRID_TOP = 26f;
-    private static final float RADIUS = 26f;
-    private static final float BTN_R = 96f, BTN_Y = 970f;
-    private static final float BTN_SETTINGS_X = 150f, BTN_MAIL_X = VW - 150f;
-    private static final float SD_X = 330f, SD_Y = 985f;
+    private static final float TILE_W = 382f, TILE_H = 208f, GAP_X = 22f, GAP_Y = 20f;
+    private static final float GRID_LEFT = 163f, GRID_TOP = 92f;
+    private static final float PAGE_W = Grid.COLS * (TILE_W + GAP_X); // next page peeks in at the right edge
+    private static final float RADIUS = 30f;
+    private static final float BAR_TOP = 783f, BAR_DIP = 895f;
+    private static final float BTN_R = 86f, WELL_R = 118f, BTN_Y = 912f;
+    private static final float BTN_SETTINGS_X = 178f, BTN_MAIL_X = 1745f;
+    private static final float SD_X = 395f, SD_Y = 945f;
+    private static final float ARROW_Y = 412f;
 
     // SD (updates) menu actions.
     private static final int SD_CHECK = 0, SD_INSTALL = 1, SD_THEME = 2, SD_BACK = 3;
@@ -74,15 +79,16 @@ final class WiiMenuView extends View {
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final TextPaint labelPaint = new TextPaint();
     private final Typeface regular = Typeface.create("sans-serif", Typeface.NORMAL);
-    private final Typeface light = Typeface.create("sans-serif-light", Typeface.NORMAL);
+    private final Typeface bold = Typeface.create("sans-serif", Typeface.BOLD);
     private final RectF rect = new RectF();
     private final RectF tile = new RectF();
     private final Path path = new Path();
     private final Path barEdge = new Path();
     private final Path barFill = new Path();
-    private final Path hand;
+    private final Path handPoint, handFist;
+    private final Shader handShader;
     private float[] stripes = new float[0];
-    private Shader barShader, tileShader;
+    private Shader barShader, tileShader, emptyShader, buttonShader, wellShader;
     private Palette pal = Palette.LIGHT;
 
     private List<Channel> channels = new ArrayList<>();
@@ -97,11 +103,13 @@ final class WiiMenuView extends View {
     private boolean updateAvailable;
     private String status;
 
-    // Hand cursor: eases toward the focused element.
+    // Hand cursor: eases toward the focused element and closes into a fist while pressing or dragging.
     private float handX = VW / 2, handY = VH / 2, handFromX, handFromY, handToX, handToY;
     private ValueAnimator handAnim;
+    private boolean pressing;
+    private boolean grabbing;
 
-    // Channel preview ("zoomed in" channel with Menu / Start).
+    // Channel preview ("zoomed in" channel with Wii Menu / Start).
     private AppEntry previewApp;
     private Bitmap previewBanner;
     private float previewT;
@@ -118,7 +126,7 @@ final class WiiMenuView extends View {
     private final Runnable clockTick = new Runnable() {
         @Override public void run() {
             invalidate();
-            main.postDelayed(this, 60_000 - System.currentTimeMillis() % 60_000);
+            main.postDelayed(this, 1000 - System.currentTimeMillis() % 1000); // the colon blinks every second
         }
     };
 
@@ -139,13 +147,16 @@ final class WiiMenuView extends View {
         setFocusable(true);
         setFocusableInTouchMode(true);
         text.setTypeface(regular);
-        hand = buildHand();
+        handPoint = buildHand(true);
+        handFist = buildHand(false);
+        handShader = new LinearGradient(0, 36, 0, 104, Color.WHITE, Color.rgb(0xC4, 0xE6, 0xF8), Shader.TileMode.CLAMP);
     }
 
     // ---------------------------------------------------------------- state from the activity
 
     void setChannels(List<Channel> list) {
-        channels = list;
+        grabbing = false;
+        channels = new ArrayList<>(list);
         if (openFolder != null) {
             Channel again = null;
             for (Channel ch : channels) if (ch.key.equals(openFolder.key)) again = ch;
@@ -164,13 +175,6 @@ final class WiiMenuView extends View {
 
     List<Channel> channelsTopLevel() {
         return channels;
-    }
-
-    void focusIndex(int index) {
-        focus = new Grid.Focus(index / Grid.PER_PAGE, index % Grid.PER_PAGE);
-        shownPage = focus.page;
-        retargetHand(true);
-        invalidate();
     }
 
     void setPalette(Palette p) {
@@ -199,8 +203,19 @@ final class WiiMenuView extends View {
         invalidate();
     }
 
+    /** Picks up the focused channel; the D-pad then drags it and OK drops it, as with A+B on the Wii. */
+    void startGrab() {
+        int idx = focus.index();
+        if (idx < 0 || idx >= visible().size()) return;
+        grabbing = true;
+        sfx.select();
+        retargetHand(true);
+        invalidate();
+    }
+
     /** Home pressed while already home: back to the top of the menu. */
     void resetToMenu() {
+        if (grabbing) drop();
         if (previewApp != null) animatePreview(false);
         sdOpen = false;
         if (openFolder != null) exitFolder();
@@ -236,21 +251,23 @@ final class WiiMenuView extends View {
     }
 
     @Override protected void onSizeChanged(int w, int h, int ow, int oh) {
-        int n = (int) (VH / 6f);
+        int n = (int) (VH / 5f);
         stripes = new float[n * 4];
         for (int i = 0; i < n; i++) {
-            float y = i * 6f + 3f;
+            float y = i * 5f + 2f;
             stripes[i * 4] = 0;
             stripes[i * 4 + 1] = y;
             stripes[i * 4 + 2] = VW;
             stripes[i * 4 + 3] = y;
         }
-        // Bar edge: high at both ends around the round buttons, low and flat in the middle.
+        // Bar edge: flat at both ends, dipping in the middle where the clock sits on the background.
         barEdge.reset();
-        barEdge.moveTo(0, 806);
-        barEdge.cubicTo(250, 802, 330, 884, 540, 884);
-        barEdge.lineTo(VW - 540, 884);
-        barEdge.cubicTo(VW - 330, 884, VW - 250, 802, VW, 806);
+        barEdge.moveTo(0, BAR_TOP);
+        barEdge.lineTo(330, BAR_TOP);
+        barEdge.cubicTo(470, BAR_TOP, 520, BAR_DIP, 650, BAR_DIP);
+        barEdge.lineTo(VW - 650, BAR_DIP);
+        barEdge.cubicTo(VW - 520, BAR_DIP, VW - 470, BAR_TOP, VW - 330, BAR_TOP);
+        barEdge.lineTo(VW, BAR_TOP);
         barFill.reset();
         barFill.addPath(barEdge);
         barFill.lineTo(VW, VH);
@@ -262,8 +279,11 @@ final class WiiMenuView extends View {
     }
 
     private void rebuildShaders() {
-        barShader = new LinearGradient(0, 806, 0, VH, pal.barTop, pal.barBottom, Shader.TileMode.CLAMP);
+        barShader = new LinearGradient(0, BAR_TOP, 0, VH, pal.barTop, pal.barBottom, Shader.TileMode.CLAMP);
         tileShader = new LinearGradient(0, 0, 0, TILE_H, pal.tileTop, pal.tileBottom, Shader.TileMode.CLAMP);
+        emptyShader = new LinearGradient(0, 0, 0, TILE_H, pal.emptyTop, pal.emptyBottom, Shader.TileMode.CLAMP);
+        buttonShader = new LinearGradient(0, -BTN_R, 0, BTN_R, pal.buttonTop, pal.buttonBottom, Shader.TileMode.CLAMP);
+        wellShader = new LinearGradient(0, -WELL_R, 0, WELL_R, pal.well, pal.barTop, Shader.TileMode.CLAMP);
     }
 
     // ---------------------------------------------------------------- drawing
@@ -275,18 +295,17 @@ final class WiiMenuView extends View {
         c.drawColor(pal.bg);
         paint.setShader(null);
         paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(2f);
+        paint.setStrokeWidth(1.5f);
         paint.setColor(pal.stripe);
         c.drawLines(stripes, paint);
 
         if (sdOpen) {
             drawSdMenu(c);
         } else {
-            float offset = shownPage - (int) shownPage;
-            int base = (int) shownPage;
-            drawPage(c, base, -offset * VW);
-            if (offset > 0.001f) drawPage(c, base + 1, (1 - offset) * VW);
+            int base = (int) Math.floor(shownPage);
+            for (int p = Math.max(0, base - 1); p <= base + 2; p++) drawPage(c, p, (p - shownPage) * PAGE_W);
             drawArrows(c);
+            if (grabbing) drawGrabbed(c);
         }
         drawBottomBar(c);
         if (previewApp != null) drawPreview(c);
@@ -296,20 +315,15 @@ final class WiiMenuView extends View {
 
     private void drawPage(Canvas c, int page, float dx) {
         List<Channel> list = visible();
-        Channel focused = null;
-        RectF focusedRect = null;
         for (int slot = 0; slot < Grid.PER_PAGE; slot++) {
-            int idx = page * Grid.PER_PAGE + slot;
             tileRect(slot, dx, tile);
+            if (tile.right < 0 || tile.left > VW) continue;
+            int idx = page * Grid.PER_PAGE + slot;
             boolean isFocus = previewApp == null && focus.page == page && focus.slot == slot;
             Channel ch = idx < list.size() ? list.get(idx) : null;
-            drawTile(c, tile, ch, isFocus);
-            if (isFocus && ch != null) {
-                focused = ch;
-                focusedRect = new RectF(tile);
-            }
+            if (grabbing && isFocus) ch = null; // the grabbed channel is drawn under the hand
+            drawTile(c, tile, ch, isFocus && !grabbing);
         }
-        if (focused != null) drawLabel(c, focusedRect, focused.label);
     }
 
     private static void tileRect(int slot, float dx, RectF out) {
@@ -319,60 +333,68 @@ final class WiiMenuView extends View {
     }
 
     private void drawTile(Canvas c, RectF r, Channel ch, boolean focused) {
+        if (focused) glow(c, r, RADIUS, 16f, (int) (110 + 120 * pulse));
         paint.setStyle(Paint.Style.FILL);
-        if (ch == null) {
-            paint.setShader(null);
-            paint.setColor(pal.tileEmpty);
-            c.drawRoundRect(r, RADIUS, RADIUS, paint);
-        } else {
-            c.save();
-            c.translate(r.left, r.top);
-            paint.setShader(tileShader);
-            c.drawRoundRect(0, 0, TILE_W, TILE_H, RADIUS, RADIUS, paint);
-            paint.setShader(null);
-            c.restore();
+        c.save();
+        c.translate(r.left, r.top);
+        paint.setShader(ch == null ? emptyShader : tileShader);
+        c.drawRoundRect(0, 0, r.width(), r.height(), RADIUS, RADIUS, paint);
+        paint.setShader(null);
+        c.restore();
+        if (ch != null) {
             if (ch.isFolder()) {
                 drawFolderFace(c, r, ch);
             } else {
                 Bitmap b = banner(ch.app);
-                if (b != null) fitInto(c, b, r.left + 8, r.top + 8, r.right - 8, r.bottom - 8, ch.app);
+                if (b != null) fitInto(c, b, r.left + 7, r.top + 7, r.right - 7, r.bottom - 7, ch.app);
             }
         }
         paint.setStyle(Paint.Style.STROKE);
         if (focused) {
-            glow(c, r, RADIUS, 18f, (int) (90 + 130 * pulse));
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setColor(pal.blue);
-            paint.setStrokeWidth(8f);
-            c.drawRoundRect(r, RADIUS, RADIUS, paint);
+            paint.setColor(pal.focus);
+            paint.setStrokeWidth(7f);
         } else {
             paint.setColor(pal.tileBorder);
             paint.setStrokeWidth(3f);
-            c.drawRoundRect(r, RADIUS, RADIUS, paint);
         }
+        c.drawRoundRect(r, RADIUS, RADIUS, paint);
+    }
+
+    /** The grabbed channel floats with the fist, slightly lifted. */
+    private void drawGrabbed(Canvas c) {
+        int idx = focus.index();
+        if (idx < 0 || idx >= visible().size()) return;
+        float w = TILE_W * 1.06f, h = TILE_H * 1.06f;
+        float cx = handX - 40f, cy = handY + 10f;
+        RectF r = new RectF(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2);
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(pal.shadow);
+        c.drawRoundRect(r.left + 10f, r.top + 14f, r.right + 10f, r.bottom + 14f, RADIUS, RADIUS, paint);
+        drawTile(c, r, visible().get(idx), true);
     }
 
     /** A folder shows its first four channels as a 2x2 mosaic plus a folder badge. */
     private void drawFolderFace(Canvas c, RectF r, Channel ch) {
-        float pad = 22f, gap = 12f;
-        float w = (TILE_W - 2 * pad - gap) / 2f, h = (TILE_H - 2 * pad - gap) / 2f;
+        float pad = 18f, gap = 10f;
+        float w = (r.width() - 2 * pad - gap) / 2f, h = (r.height() - 2 * pad - gap) / 2f;
         for (int i = 0; i < 4; i++) {
             float l = r.left + pad + (i % 2) * (w + gap), t = r.top + pad + (i / 2) * (h + gap);
             paint.setShader(null);
             paint.setStyle(Paint.Style.FILL);
-            paint.setColor(pal.tileEmpty);
+            paint.setColor(pal.emptyBottom);
             c.drawRoundRect(l, t, l + w, t + h, 12f, 12f, paint);
             if (i < ch.folderApps.size()) {
                 Bitmap b = banner(ch.folderApps.get(i));
                 if (b != null) fitInto(c, b, l, t, l + w, t + h, ch.folderApps.get(i));
             }
         }
-        float bx = r.right - 54f, by = r.bottom - 48f;
+        float bx = r.right - 50f, by = r.bottom - 44f;
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(pal.blue);
+        paint.setColor(pal.focus);
         path.reset();
-        path.addRoundRect(bx - 30f, by - 16f, bx + 30f, by + 24f, 6f, 6f, Path.Direction.CW);
-        path.addRoundRect(bx - 30f, by - 24f, bx - 4f, by - 10f, 4f, 4f, Path.Direction.CW);
+        path.addRoundRect(bx - 28f, by - 14f, bx + 28f, by + 22f, 6f, 6f, Path.Direction.CW);
+        path.addRoundRect(bx - 28f, by - 22f, bx - 4f, by - 8f, 4f, 4f, Path.Direction.CW);
         c.drawPath(path, paint);
     }
 
@@ -395,200 +417,237 @@ final class WiiMenuView extends View {
         for (int i = 3; i >= 1; i--) {
             float d = spread * i / 3f;
             paint.setStrokeWidth(spread / 3f + 2f);
-            paint.setColor(pal.blue);
+            paint.setColor(pal.focus);
             paint.setAlpha(alpha / (i + 1));
             c.drawRoundRect(r.left - d, r.top - d, r.right + d, r.bottom + d, radius + d, radius + d, paint);
         }
         paint.setAlpha(255);
     }
 
-    private void drawLabel(Canvas c, RectF r, String label) {
-        text.setTypeface(regular);
-        text.setTextSize(40f);
-        labelPaint.set(text);
-        String l = TextUtils.ellipsize(label, labelPaint, 560f, TextUtils.TruncateAt.END).toString();
-        float w = text.measureText(l) + 60f;
-        float cx = Math.max(w / 2 + 20, Math.min(VW - w / 2 - 20, r.centerX()));
-        float top = r.bottom - 34f;
-        paint.setShader(null);
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(pal.shadow);
-        c.drawRoundRect(cx - w / 2, top + 4f, cx + w / 2, top + 70f, 33f, 33f, paint);
-        paint.setColor(pal.labelFace);
-        c.drawRoundRect(cx - w / 2, top, cx + w / 2, top + 66f, 33f, 33f, paint);
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(3f);
-        paint.setColor(pal.blue);
-        c.drawRoundRect(cx - w / 2, top, cx + w / 2, top + 66f, 33f, 33f, paint);
-        text.setTextAlign(Paint.Align.CENTER);
-        text.setColor(pal.labelText);
-        c.drawText(l, cx, top + 47f, text);
-    }
-
     private void drawArrows(Canvas c) {
         if (previewApp != null) return;
         int pages = Grid.pageCount(visible().size());
-        float cy = GRID_TOP + (Grid.ROWS * TILE_H + (Grid.ROWS - 1) * GAP_Y) / 2f;
-        if (focus.page > 0) arrow(c, 26f, cy, -1);
-        if (focus.page < pages - 1) arrow(c, VW - 26f, cy, 1);
+        if (focus.page > 0) arrow(c, 98f, -1);
+        if (focus.page < pages - 1) arrow(c, 1822f, 1);
     }
 
-    /** Small blue triangle with a white rim, as on the Wii Menu's page edges. */
-    private void arrow(Canvas c, float cx, float cy, int dir) {
+    /** Blue-outlined triangle with a pale fill, as on the Wii Menu's page edges. */
+    private void arrow(Canvas c, float cx, int dir) {
         path.reset();
-        path.moveTo(cx + dir * 18f, cy);
-        path.lineTo(cx - dir * 12f, cy - 30f);
-        path.lineTo(cx - dir * 12f, cy + 30f);
+        path.moveTo(cx + dir * 26f, ARROW_Y);
+        path.lineTo(cx - dir * 22f, ARROW_Y - 46f);
+        path.lineTo(cx - dir * 22f, ARROW_Y + 46f);
         path.close();
+        paint.setStyle(Paint.Style.FILL);
+        paint.setShader(new LinearGradient(0, ARROW_Y - 46f, 0, ARROW_Y + 46f, Color.WHITE,
+                Color.rgb(0xCF, 0xEC, 0xFA), Shader.TileMode.CLAMP));
+        c.drawPath(path, paint);
         paint.setShader(null);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeJoin(Paint.Join.ROUND);
-        paint.setStrokeWidth(10f);
-        paint.setColor(Color.WHITE);
-        c.drawPath(path, paint);
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(pal.blue);
+        paint.setStrokeWidth(5f);
+        paint.setColor(Color.rgb(0x2E, 0x8E, 0xD6));
         c.drawPath(path, paint);
     }
 
     private void drawBottomBar(Canvas c) {
         paint.setStyle(Paint.Style.FILL);
-        paint.setShader(null);
-        paint.setColor(pal.shadow);
-        c.save();
-        c.translate(0, -5f);
-        c.drawPath(barFill, paint);
-        c.restore();
         paint.setShader(barShader);
         c.drawPath(barFill, paint);
         paint.setShader(null);
         paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(4f);
+        paint.setStrokeWidth(3f);
+        paint.setColor(pal.buttonTop);
+        c.save();
+        c.translate(0, 5f);
+        c.drawPath(barEdge, paint); // pale highlight under the blue line
+        c.restore();
+        paint.setStrokeWidth(5f);
         paint.setColor(pal.line);
         c.drawPath(barEdge, paint);
 
-        text.setTextAlign(Paint.Align.CENTER);
         if (sdOpen) {
-            text.setTypeface(regular);
-            text.setTextSize(50f);
+            text.setTextAlign(Paint.Align.CENTER);
+            text.setTypeface(bold);
+            text.setTextSize(64f);
             text.setColor(pal.date);
-            c.drawText(getContext().getString(R.string.sd_menu_title), VW / 2, 1000f, text);
+            c.drawText(getContext().getString(R.string.sd_menu_title), VW / 2, 985f, text);
         } else {
             drawClock(c);
         }
 
-        boolean grid = previewApp == null && !sdOpen;
+        boolean grid = previewApp == null && !sdOpen && !grabbing;
         roundButton(c, BTN_SETTINGS_X, grid && focus.slot == Grid.BTN_SETTINGS);
-        gear(c, BTN_SETTINGS_X, BTN_Y);
+        text.setTextAlign(Paint.Align.CENTER);
+        text.setTypeface(bold);
+        text.setTextSize(66f);
+        text.setColor(pal.icon);
+        c.drawText("Wii", BTN_SETTINGS_X, BTN_Y + 23f, text);
         roundButton(c, BTN_MAIL_X, grid && focus.slot == Grid.BTN_MAIL);
         envelope(c, BTN_MAIL_X, BTN_Y);
         sdCard(c, grid && focus.slot == Grid.BTN_SD);
     }
 
+    // ---------------------------------------------------------------- clock
+
+    private static final float DIGIT_W = 48f, DIGIT_H = 76f, CLOCK_TOP = 790f;
+
+    /** Hollow segmented digits with a blinking colon centered on screen, then AM/PM. */
     private void drawClock(Canvas c) {
         Calendar now = Calendar.getInstance();
         boolean h24 = DateFormat.is24HourFormat(getContext());
-        String time = DateFormat.format(h24 ? "H:mm" : "h:mm", now).toString();
-        text.setColor(pal.clock);
-        text.setTypeface(light);
-        text.setTextSize(104f);
-        float tw = text.measureText(time);
-        c.drawText(time, VW / 2, 978f, text);
-        if (!h24) {
-            text.setTextSize(36f);
-            text.setTextAlign(Paint.Align.LEFT);
-            c.drawText(now.get(Calendar.AM_PM) == Calendar.AM ? "AM" : "PM", VW / 2 + tw / 2 + 12f, 978f, text);
-            text.setTextAlign(Paint.Align.CENTER);
+        int hour = now.get(h24 ? Calendar.HOUR_OF_DAY : Calendar.HOUR);
+        if (!h24 && hour == 0) hour = 12;
+        int min = now.get(Calendar.MINUTE);
+        String hh = String.valueOf(hour), mm = String.format(Locale.ROOT, "%02d", min);
+
+        if (hh.length() == 2) digit(c, hh.charAt(0), 823f);
+        digit(c, hh.charAt(hh.length() - 1), 887f);
+        digit(c, mm.charAt(0), 985f);
+        digit(c, mm.charAt(1), 1049f);
+        if (now.get(Calendar.SECOND) % 2 == 0) {
+            paint.setShader(null);
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(pal.clock);
+            c.drawCircle(VW / 2, CLOCK_TOP + 22f, 7.5f, paint);
+            c.drawCircle(VW / 2, CLOCK_TOP + 56f, 7.5f, paint);
         }
-        text.setTypeface(regular);
-        text.setTextSize(50f);
+        if (!h24) {
+            text.setTextAlign(Paint.Align.LEFT);
+            text.setTypeface(bold);
+            text.setTextSize(46f);
+            text.setColor(pal.clock);
+            c.drawText(now.get(Calendar.AM_PM) == Calendar.AM ? "AM" : "PM", 1138f, CLOCK_TOP + DIGIT_H, text);
+        }
+
+        text.setTextAlign(Paint.Align.CENTER);
+        text.setTypeface(bold);
+        text.setTextSize(78f);
         text.setColor(pal.date);
         String line = openFolder != null ? openFolder.label : dateLine(now);
-        c.drawText(line, VW / 2, 1050f, text);
+        labelPaint.set(text);
+        c.drawText(TextUtils.ellipsize(line, labelPaint, 900f, TextUtils.TruncateAt.END).toString(), VW / 2, 985f, text);
     }
 
-    /** "Lun. 15-03" style. */
+    private void digit(Canvas c, char ch, float x) {
+        int m = SevenSegment.mask(ch);
+        float y = CLOCK_TOP, w = DIGIT_W, h = DIGIT_H, mid = y + h / 2, inset = 9f;
+        float[][] seg = {
+                {x + inset, y, x + w - inset, y},                 // a
+                {x + w, y + inset, x + w, mid - inset},           // b
+                {x + w, mid + inset, x + w, y + h - inset},       // c
+                {x + inset, y + h, x + w - inset, y + h},         // d
+                {x, mid + inset, x, y + h - inset},               // e
+                {x, y + inset, x, mid - inset},                   // f
+                {x + inset, mid, x + w - inset, mid},             // g
+        };
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        for (int pass = 0; pass < 2; pass++) {
+            paint.setStrokeWidth(pass == 0 ? 17f : 6f);
+            paint.setColor(pass == 0 ? pal.clock : pal.clockInner);
+            for (int i = 0; i < 7; i++) if ((m & (1 << i)) != 0) c.drawLine(seg[i][0], seg[i][1], seg[i][2], seg[i][3], paint);
+        }
+        paint.setStrokeCap(Paint.Cap.BUTT);
+    }
+
+    /** "Lun. 15-03" style, as on a Spanish Wii. */
     private static String dateLine(Calendar now) {
         String day = DateFormat.format("EEE", now).toString().replace(".", "");
         if (!day.isEmpty()) day = day.substring(0, 1).toUpperCase(Locale.getDefault()) + day.substring(1);
         return day + ". " + DateFormat.format("dd-MM", now);
     }
 
+    // ---------------------------------------------------------------- bottom bar buttons
+
+    /** Round button sitting in a recessed well, with the Wii Menu's blue rim. */
     private void roundButton(Canvas c, float cx, boolean focused) {
-        float r = BTN_R * (focused ? 1.05f : 1f);
-        rect.set(cx - r, BTN_Y - r, cx + r, BTN_Y + r);
-        if (focused) {
-            glow(c, rect, r, 20f, (int) (90 + 130 * pulse));
-        }
+        c.save();
+        c.translate(cx, BTN_Y);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setShader(wellShader);
+        c.drawCircle(0, 0, WELL_R, paint);
         paint.setShader(null);
+        float r = BTN_R * (focused ? 1.06f : 1f);
+        if (focused) {
+            rect.set(-r, -r, r, r);
+            glow(c, rect, r, 18f, (int) (110 + 120 * pulse));
+        }
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(pal.shadow);
-        c.drawCircle(cx, BTN_Y + 4f, r, paint);
-        paint.setColor(pal.buttonFace);
-        c.drawCircle(cx, BTN_Y, r, paint);
+        c.drawCircle(0, 5f, r, paint);
+        paint.setShader(buttonShader);
+        c.drawCircle(0, 0, r, paint);
+        paint.setShader(null);
         paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(focused ? 7f : 4f);
-        paint.setColor(focused ? pal.blue : pal.buttonRing);
-        c.drawCircle(cx, BTN_Y, r, paint);
-    }
-
-    private void gear(Canvas c, float cx, float cy) {
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(pal.icon);
-        for (int i = 0; i < 8; i++) {
-            c.save();
-            c.rotate(i * 45f, cx, cy);
-            c.drawRoundRect(cx - 9f, cy - 46f, cx + 9f, cy - 24f, 4f, 4f, paint);
-            c.restore();
-        }
-        c.drawCircle(cx, cy, 32f, paint);
-        paint.setColor(pal.buttonFace);
-        c.drawCircle(cx, cy, 13f, paint);
+        paint.setStrokeWidth(focused ? 7f : 5f);
+        paint.setColor(pal.ring);
+        c.drawCircle(0, 0, r - 2f, paint);
+        c.restore();
     }
 
     private void envelope(Canvas c, float cx, float cy) {
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(6f);
-        paint.setStrokeJoin(Paint.Join.ROUND);
+        paint.setShader(null);
+        paint.setStyle(Paint.Style.FILL);
         paint.setColor(pal.icon);
-        c.drawRoundRect(cx - 44f, cy - 30f, cx + 44f, cy + 30f, 6f, 6f, paint);
+        c.drawRoundRect(cx - 50f, cy - 36f, cx + 50f, cy + 32f, 7f, 7f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(5f);
+        paint.setStrokeJoin(Paint.Join.ROUND);
+        paint.setColor(pal.buttonTop);
         path.reset();
-        path.moveTo(cx - 44f, cy - 28f);
-        path.lineTo(cx, cy + 6f);
-        path.lineTo(cx + 44f, cy - 28f);
+        path.moveTo(cx - 46f, cy - 30f);
+        path.lineTo(cx, cy + 2f);
+        path.lineTo(cx + 46f, cy - 30f);
         c.drawPath(path, paint);
     }
 
-    /** SD card icon beside the settings button; it pulses when GitHub has a newer release. */
+    /** SD card icon beside the Wii button; it pulses when GitHub has a newer release. */
     private void sdCard(Canvas c, boolean focused) {
-        float w = 46f, h = 60f, l = SD_X - w / 2, t = SD_Y - h / 2;
+        float w = 74f, h = 96f, l = SD_X - w / 2, t = SD_Y - h / 2;
         if (focused) {
-            rect.set(l - 6f, t - 6f, l + w + 6f, t + h + 6f);
-            glow(c, rect, 10f, 16f, (int) (90 + 130 * pulse));
+            rect.set(l - 4f, t - 4f, l + w + 4f, t + h + 4f);
+            glow(c, rect, 10f, 16f, (int) (110 + 120 * pulse));
         }
         path.reset();
-        path.moveTo(l + 14f, t);
-        path.lineTo(l + w - 4f, t);
-        path.quadTo(l + w, t, l + w, t + 4f);
-        path.lineTo(l + w, t + h - 4f);
-        path.quadTo(l + w, t + h, l + w - 4f, t + h);
-        path.lineTo(l + 4f, t + h);
-        path.quadTo(l, t + h, l, t + h - 4f);
-        path.lineTo(l, t + 14f);
+        path.moveTo(l + 20f, t);
+        path.lineTo(l + w - 6f, t);
+        path.quadTo(l + w, t, l + w, t + 6f);
+        path.lineTo(l + w, t + h - 6f);
+        path.quadTo(l + w, t + h, l + w - 6f, t + h);
+        path.lineTo(l + 6f, t + h);
+        path.quadTo(l, t + h, l, t + h - 6f);
+        path.lineTo(l, t + 20f);
         path.close();
-        paint.setShader(null);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(pal.blue);
-        if (updateAvailable && !focused) paint.setAlpha((int) (120 + 135 * pulse));
+        paint.setColor(pal.shadow);
+        c.save();
+        c.translate(4f, 5f);
         c.drawPath(path, paint);
+        c.restore();
+        paint.setShader(new LinearGradient(0, t, 0, t + h, Color.WHITE, Color.rgb(0xD2, 0xEC, 0xFA), Shader.TileMode.CLAMP));
+        if (updateAvailable && !focused) paint.setAlpha((int) (140 + 115 * pulse));
+        c.drawPath(path, paint);
+        paint.setShader(null);
         paint.setAlpha(255);
-        paint.setColor(Color.WHITE);
-        for (int i = 0; i < 4; i++) c.drawRect(l + 12f + i * 8f, t + 6f, l + 16f + i * 8f, t + 18f, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(4f);
+        paint.setColor(Color.rgb(0x3F, 0xA9, 0xE0));
+        c.drawPath(path, paint);
+        text.setTextAlign(Paint.Align.CENTER);
+        text.setTypeface(Typeface.create(bold, Typeface.BOLD_ITALIC));
+        text.setTextSize(34f);
+        text.setColor(Color.rgb(0x3F, 0xA9, 0xE0));
+        c.drawText("SD", SD_X + 2f, SD_Y + 12f, text);
         if (updateAvailable) {
+            paint.setStyle(Paint.Style.FILL);
             paint.setColor(Color.rgb(0xF5, 0x5A, 0x4E));
-            c.drawCircle(l + w + 2f, t + 2f, 9f, paint);
+            c.drawCircle(l + w, t + 2f, 11f, paint);
         }
     }
+
+    // ---------------------------------------------------------------- channel preview
 
     private void drawPreview(Canvas c) {
         float t = previewT;
@@ -603,19 +662,12 @@ final class WiiMenuView extends View {
 
         if (previewBanner != null) {
             paint.setAlpha(alpha);
-            float bw = 1152f, bh = 648f;
+            float bw = 1280f, bh = 697f;
             if (!(previewApp.leanback && previewBanner.getWidth() > previewBanner.getHeight())) bw = bh = 440f;
-            rect.set((VW - bw) / 2, 380f - bh / 2, (VW + bw) / 2, 380f + bh / 2);
+            rect.set((VW - bw) / 2, 410f - bh / 2, (VW + bw) / 2, 410f + bh / 2);
             c.drawBitmap(previewBanner, null, rect, paint);
             paint.setAlpha(255);
         }
-        text.setTypeface(regular);
-        text.setTextAlign(Paint.Align.CENTER);
-        text.setTextSize(52f);
-        text.setColor(pal.date);
-        text.setAlpha(alpha);
-        c.drawText(previewApp.label, VW / 2, 790f, text);
-        text.setAlpha(255);
 
         // Bottom strip with the two Wii-style buttons, in the bar's colors.
         paint.setShader(barShader);
@@ -624,7 +676,7 @@ final class WiiMenuView extends View {
         paint.setShader(null);
         paint.setAlpha(255);
         paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(4f);
+        paint.setStrokeWidth(5f);
         paint.setColor(pal.line);
         paint.setAlpha(alpha);
         c.drawLine(0, 860f, VW, 860f, paint);
@@ -639,24 +691,27 @@ final class WiiMenuView extends View {
     }
 
     private void pillButton(Canvas c, RectF r, String label, boolean focused, int alpha) {
-        if (focused) glow(c, r, 60f, 18f, (int) ((90 + 130 * pulse) * alpha / 255));
-        paint.setShader(null);
+        if (focused) glow(c, r, 60f, 18f, (int) ((110 + 120 * pulse) * alpha / 255));
+        c.save();
+        c.translate(0, r.centerY());
+        paint.setShader(buttonShader);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(pal.buttonFace);
         paint.setAlpha(alpha);
-        c.drawRoundRect(r, 60f, 60f, paint);
+        c.drawRoundRect(r.left, -r.height() / 2, r.right, r.height() / 2, 60f, 60f, paint);
+        c.restore();
+        paint.setShader(null);
         paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(focused ? 7f : 3f);
-        paint.setColor(focused ? pal.blue : pal.buttonRing);
+        paint.setStrokeWidth(focused ? 7f : 4f);
+        paint.setColor(focused ? pal.focus : pal.tileBorder);
         paint.setAlpha(alpha);
         c.drawRoundRect(r, 60f, 60f, paint);
         paint.setAlpha(255);
-        text.setTypeface(regular);
+        text.setTypeface(bold);
         text.setTextAlign(Paint.Align.CENTER);
-        text.setTextSize(48f);
-        text.setColor(pal.labelText);
+        text.setTextSize(50f);
+        text.setColor(pal.icon);
         text.setAlpha(alpha);
-        c.drawText(label, r.centerX(), r.centerY() + 17f, text);
+        c.drawText(label, r.centerX(), r.centerY() + 18f, text);
         text.setAlpha(255);
     }
 
@@ -682,15 +737,18 @@ final class WiiMenuView extends View {
     }
 
     private static RectF sdItemRect(int i) {
-        return new RectF(VW / 2 - 420f, 400f + i * 112f, VW / 2 + 420f, 486f + i * 112f);
+        return new RectF(VW / 2 - 420f, 380f + i * 100f, VW / 2 + 420f, 462f + i * 100f);
     }
 
     private void drawSdMenu(Canvas c) {
-        rect.set(GRID_LEFT, GRID_TOP, VW - GRID_LEFT, 790f);
-        paint.setShader(null);
+        rect.set(GRID_LEFT, GRID_TOP, VW - GRID_LEFT, 756f);
+        c.save();
+        c.translate(0, rect.top);
+        paint.setShader(emptyShader);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(pal.tileEmpty);
-        c.drawRoundRect(rect, RADIUS, RADIUS, paint);
+        c.drawRoundRect(rect.left, 0, rect.right, rect.height(), RADIUS, RADIUS, paint);
+        c.restore();
+        paint.setShader(null);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(3f);
         paint.setColor(pal.tileBorder);
@@ -698,27 +756,28 @@ final class WiiMenuView extends View {
 
         Context ctx = getContext();
         text.setTextAlign(Paint.Align.CENTER);
-        text.setTypeface(regular);
+        text.setTypeface(bold);
         text.setTextSize(48f);
         text.setColor(pal.labelText);
         c.drawText(ctx.getString(R.string.sd_versions, installedVersion,
-                latestVersion.isEmpty() ? "—" : latestVersion), VW / 2, 140f, text);
+                latestVersion.isEmpty() ? "—" : latestVersion), VW / 2, 180f, text);
+        text.setTypeface(regular);
         text.setTextSize(36f);
-        text.setColor(pal.clock);
+        text.setColor(pal.date);
         String info = status != null ? status
                 : updateAvailable ? ctx.getString(R.string.sd_new_available)
                 : latestVersion.isEmpty() ? ctx.getString(R.string.sd_not_checked) : ctx.getString(R.string.sd_up_to_date);
-        c.drawText(info, VW / 2, 205f, text);
+        c.drawText(info, VW / 2, 238f, text);
         if (updateAvailable && !releaseNotes.isEmpty()) {
             text.setTextSize(30f);
             String[] lines = releaseNotes.replace("\r", "").split("\n");
-            int y = 260;
-            for (int i = 0; i < lines.length && y <= 350; i++) {
+            int y = 290;
+            for (int i = 0; i < lines.length && y <= 340; i++) {
                 String ln = lines[i].replaceAll("^[#*\\- ]+", "").trim();
                 if (ln.isEmpty()) continue;
                 labelPaint.set(text);
-                c.drawText(TextUtils.ellipsize(ln, labelPaint, 1500f, TextUtils.TruncateAt.END).toString(), VW / 2, y, text);
-                y += 42;
+                c.drawText(TextUtils.ellipsize(ln, labelPaint, 1400f, TextUtils.TruncateAt.END).toString(), VW / 2, y, text);
+                y += 40;
             }
         }
         List<Integer> items = sdItems();
@@ -727,51 +786,60 @@ final class WiiMenuView extends View {
 
     // ---------------------------------------------------------------- hand cursor
 
-    /** An original pointing-hand outline: index finger up, fingertip at (34, 0). */
-    private static Path buildHand() {
+    /**
+     * The Wii Remote pointer: a white hand with a black outline, pale blue toward the wrist and a blue
+     * player "1". Pointing: index finger up, fingertip at (27, 0). Fist: the index finger curls in too.
+     */
+    private static Path buildHand(boolean pointing) {
         Path p = new Path();
-        p.addRoundRect(23, 0, 45, 60, 11, 11, Path.Direction.CW);
-        Path palm = new Path();
-        palm.addRoundRect(12, 40, 72, 100, 22, 22, Path.Direction.CW);
-        p.op(palm, Path.Op.UNION);
-        for (float[] k : new float[][]{{40, 36, 56, 66}, {53, 42, 68, 70}, {62, 50, 76, 76}}) {
-            Path knuckle = new Path();
-            knuckle.addRoundRect(k[0], k[1], k[2], k[3], 8, 8, Path.Direction.CW);
-            p.op(knuckle, Path.Op.UNION);
+        p.addRoundRect(6, 42, 68, 106, 22, 22, Path.Direction.CW);
+        float[][] parts = pointing
+                ? new float[][]{{18, 0, 36, 62, 9}, {35, 34, 50, 62, 7.5f}, {47, 40, 61, 66, 7}, {57, 48, 70, 74, 6.5f}}
+                : new float[][]{{18, 30, 36, 60, 8}, {34, 32, 50, 60, 7.5f}, {47, 38, 61, 64, 7}, {57, 46, 70, 72, 6.5f}};
+        for (float[] k : parts) {
+            Path q = new Path();
+            q.addRoundRect(k[0], k[1], k[2], k[3], k[4], k[4], Path.Direction.CW);
+            p.op(q, Path.Op.UNION);
         }
         Path thumb = new Path();
-        thumb.addRoundRect(-4, 52, 26, 70, 9, 9, Path.Direction.CW);
+        thumb.addRoundRect(-4, 58, 24, 80, 11, 11, Path.Direction.CW);
         Matrix m = new Matrix();
-        m.setRotate(-35, 20, 62);
+        m.setRotate(-32, 18, 69);
         thumb.transform(m);
         p.op(thumb, Path.Op.UNION);
         return p;
     }
 
     private void drawHand(Canvas c) {
-        float bob = 3f * (pulse - 0.5f);
+        boolean fist = pressing || grabbing;
+        Path hand = fist ? handFist : handPoint;
+        float bob = grabbing ? 0f : 3f * (pulse - 0.5f);
         c.save();
         c.translate(handX, handY + bob);
-        c.rotate(-16f);
-        c.translate(-34f, 0f);
-        c.scale(1.25f, 1.25f);
+        c.rotate(6f);
+        c.scale(1.3f, 1.3f);
+        c.translate(-27f, fist ? -24f : 0f);
         paint.setShader(null);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.argb(60, 0, 0, 0));
+        paint.setColor(Color.argb(70, 0, 0, 0));
         c.save();
-        c.translate(5f, 6f);
+        c.translate(6f, 8f);
         c.drawPath(hand, paint);
         c.restore();
-        paint.setColor(Color.WHITE);
+        paint.setColor(Color.WHITE); // opaque base, or the shadow's alpha would tint the hand
+        paint.setShader(handShader);
         c.drawPath(hand, paint);
+        paint.setShader(null);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeJoin(Paint.Join.ROUND);
-        paint.setStrokeWidth(4f);
-        paint.setColor(Color.rgb(0x3C, 0x40, 0x48));
+        paint.setStrokeWidth(4.5f);
+        paint.setColor(Color.rgb(0x1E, 0x1E, 0x20));
         c.drawPath(hand, paint);
-        paint.setStrokeWidth(2.5f);
-        paint.setColor(pal.blue);
-        c.drawLine(30, 14, 30, 40, paint); // finger crease, the cursor's only accent
+        text.setTextAlign(Paint.Align.CENTER);
+        text.setTypeface(bold);
+        text.setTextSize(32f);
+        text.setColor(Color.rgb(0x2B, 0x9B, 0xE3));
+        c.drawText("1", 46f, 99f, text);
         c.restore();
     }
 
@@ -779,19 +847,19 @@ final class WiiMenuView extends View {
     private float[] handTarget() {
         if (previewApp != null) {
             RectF r = previewPill(previewStartFocused);
-            return new float[]{r.centerX() + 150f, r.centerY() + 4f};
+            return new float[]{r.centerX() + 150f, r.centerY() - 10f};
         }
         if (sdOpen) {
             RectF r = sdItemRect(sdFocus);
-            return new float[]{r.right - 110f, r.centerY() + 4f};
+            return new float[]{r.right - 110f, r.centerY() - 10f};
         }
         switch (focus.slot) {
-            case Grid.BTN_SETTINGS: return new float[]{BTN_SETTINGS_X + 30f, BTN_Y + 10f};
-            case Grid.BTN_MAIL: return new float[]{BTN_MAIL_X + 30f, BTN_Y + 10f};
-            case Grid.BTN_SD: return new float[]{SD_X + 16f, SD_Y + 8f};
+            case Grid.BTN_SETTINGS: return new float[]{BTN_SETTINGS_X + 40f, BTN_Y + 4f};
+            case Grid.BTN_MAIL: return new float[]{BTN_MAIL_X + 40f, BTN_Y + 4f};
+            case Grid.BTN_SD: return new float[]{SD_X + 22f, SD_Y + 10f};
             default:
                 tileRect(focus.slot, 0, rect);
-                return new float[]{rect.centerX() + 150f, rect.centerY() - 40f};
+                return new float[]{rect.centerX() + 60f, rect.centerY() - 10f};
         }
     }
 
@@ -830,7 +898,7 @@ final class WiiMenuView extends View {
         if (b != null || loading.contains(app.pkg) || getWidth() == 0) return b;
         loading.add(app.pkg);
         float s = getWidth() / VW;
-        int w = Math.max(1, Math.round((TILE_W - 16) * s)), h = Math.max(1, Math.round((TILE_H - 16) * s));
+        int w = Math.max(1, Math.round((TILE_W - 14) * s)), h = Math.max(1, Math.round((TILE_H - 14) * s));
         loader.execute(() -> {
             Bitmap bmp = render(app, w, h);
             main.post(() -> {
@@ -853,7 +921,7 @@ final class WiiMenuView extends View {
             Canvas c = new Canvas(bmp);
             if (isBanner) {
                 // Round the corners once here instead of clipping on every frame.
-                float r = h * 0.08f;
+                float r = h * 0.11f;
                 Path clip = new Path();
                 clip.addRoundRect(0, 0, w, h, r, r, Path.Direction.CW);
                 c.clipPath(clip);
@@ -874,6 +942,17 @@ final class WiiMenuView extends View {
             if (e.getRepeatCount() == 0) {
                 e.startTracking();
                 longPressHandled = false;
+                pressing = true;
+                invalidate();
+            }
+            return true;
+        }
+        if (grabbing) {
+            Grid.Dir d = dir(keyCode);
+            if (d != null) {
+                drag(d);
+            } else if (keyCode == KeyEvent.KEYCODE_BACK) {
+                drop();
             }
             return true;
         }
@@ -914,11 +993,9 @@ final class WiiMenuView extends View {
                     return true;
             }
         }
+        Grid.Dir d = dir(keyCode);
+        if (d != null) return step(d);
         switch (keyCode) {
-            case KeyEvent.KEYCODE_DPAD_LEFT: return step(Grid.Dir.LEFT);
-            case KeyEvent.KEYCODE_DPAD_RIGHT: return step(Grid.Dir.RIGHT);
-            case KeyEvent.KEYCODE_DPAD_UP: return step(Grid.Dir.UP);
-            case KeyEvent.KEYCODE_DPAD_DOWN: return step(Grid.Dir.DOWN);
             case KeyEvent.KEYCODE_MENU:
                 openOptions();
                 return true;
@@ -938,9 +1015,9 @@ final class WiiMenuView extends View {
     }
 
     @Override public boolean onKeyLongPress(int keyCode, KeyEvent e) {
-        if (isSelect(keyCode) && previewApp == null && !sdOpen) {
+        if (isSelect(keyCode) && previewApp == null && !sdOpen && !grabbing) {
             longPressHandled = true;
-            openOptions();
+            startGrab();
             return true;
         }
         return super.onKeyLongPress(keyCode, e);
@@ -948,7 +1025,13 @@ final class WiiMenuView extends View {
 
     @Override public boolean onKeyUp(int keyCode, KeyEvent e) {
         if (!isSelect(keyCode)) return super.onKeyUp(keyCode, e);
+        pressing = false;
+        invalidate();
         if (longPressHandled || e.isCanceled()) return true;
+        if (grabbing) {
+            drop();
+            return true;
+        }
         if (previewApp != null) {
             if (previewT < 1f) return true;
             sfx.select();
@@ -990,6 +1073,16 @@ final class WiiMenuView extends View {
                 || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER || keyCode == KeyEvent.KEYCODE_BUTTON_A;
     }
 
+    private static Grid.Dir dir(int keyCode) {
+        switch (keyCode) {
+            case KeyEvent.KEYCODE_DPAD_LEFT: return Grid.Dir.LEFT;
+            case KeyEvent.KEYCODE_DPAD_RIGHT: return Grid.Dir.RIGHT;
+            case KeyEvent.KEYCODE_DPAD_UP: return Grid.Dir.UP;
+            case KeyEvent.KEYCODE_DPAD_DOWN: return Grid.Dir.DOWN;
+            default: return null;
+        }
+    }
+
     private boolean step(Grid.Dir d) {
         Grid.Focus next = Grid.move(focus, d, Grid.pageCount(visible().size()));
         if (next.equals(focus)) return true;
@@ -999,6 +1092,28 @@ final class WiiMenuView extends View {
         retargetHand(true);
         invalidate();
         return true;
+    }
+
+    private void drag(Grid.Dir d) {
+        List<Channel> list = visible();
+        int from = focus.index(), to = Grid.dragTarget(focus, d, list.size());
+        if (to < 0) return;
+        Channel moving = list.remove(from);
+        list.add(to, moving);
+        Grid.Focus next = new Grid.Focus(to / Grid.PER_PAGE, to % Grid.PER_PAGE);
+        if (next.page != focus.page) animatePage(next.page);
+        focus = next;
+        sfx.tick();
+        retargetHand(true);
+        invalidate();
+    }
+
+    private void drop() {
+        grabbing = false;
+        sfx.select();
+        callbacks.onMoved(Collections.unmodifiableList(new ArrayList<>(visible())), openFolder);
+        retargetHand(true);
+        invalidate();
     }
 
     private void openOptions() {
@@ -1054,7 +1169,7 @@ final class WiiMenuView extends View {
     private void animatePage(int target) {
         if (pageAnim != null) pageAnim.cancel();
         pageAnim = ValueAnimator.ofFloat(shownPage, target);
-        pageAnim.setDuration(260);
+        pageAnim.setDuration(280);
         pageAnim.setInterpolator(new DecelerateInterpolator());
         pageAnim.addUpdateListener(a -> {
             shownPage = (float) a.getAnimatedValue();
@@ -1068,7 +1183,7 @@ final class WiiMenuView extends View {
         previewFrom = new RectF(rect);
         previewApp = app;
         previewStartFocused = true;
-        Bitmap big = render(app, 1152, 648);
+        Bitmap big = render(app, 1280, 697);
         previewBanner = big != null ? big : banners.get(app.pkg);
         animatePreview(true);
         retargetHand(true);

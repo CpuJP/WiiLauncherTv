@@ -1,9 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="menu">Menu</string>
+    <string name="menu">Wii Menu</string>
     <string name="start">Start</string>
-    <string name="move_left">Move left</string>
-    <string name="move_right">Move right</string>
+    <string name="move">Move</string>
     <string name="app_info">App info</string>
     <string name="folder_add">Add to a folder</string>
     <string name="folder_new">New folder…</string>
@@ -12,7 +11,7 @@
     <string name="folder_rename">Rename</string>
     <string name="folder_ungroup">Ungroup folder</string>
     <string name="folder_take_out">Take out of folder</string>
-    <string name="sd_menu_title">Update menu</string>
+    <string name="sd_menu_title">SD Card Menu</string>
     <string name="sd_versions">Installed: %1$s · GitHub: %2$s</string>
     <string name="sd_check">Check for updates</string>
     <string name="sd_install">Install %1$s</string>
