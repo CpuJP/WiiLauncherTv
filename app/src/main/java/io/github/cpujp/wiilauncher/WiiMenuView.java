@@ -86,7 +86,8 @@ final class WiiMenuView extends View {
     private final Path barEdge = new Path();
     private final Path barFill = new Path();
     private final Path handPoint, handFist;
-    private final Shader handShader;
+    private final Shader handShader, arrowShader, sdShader;
+    private final Typeface boldItalic = Typeface.create("sans-serif", Typeface.BOLD_ITALIC);
     private float[] stripes = new float[0];
     private Shader barShader, tileShader, emptyShader, buttonShader, wellShader;
     private Palette pal = Palette.LIGHT;
@@ -150,6 +151,8 @@ final class WiiMenuView extends View {
         handPoint = buildHand(true);
         handFist = buildHand(false);
         handShader = new LinearGradient(0, 36, 0, 104, Color.WHITE, Color.rgb(0xC4, 0xE6, 0xF8), Shader.TileMode.CLAMP);
+        arrowShader = new LinearGradient(0, ARROW_Y - 46f, 0, ARROW_Y + 46f, Color.WHITE, Color.rgb(0xCF, 0xEC, 0xFA), Shader.TileMode.CLAMP);
+        sdShader = new LinearGradient(0, SD_Y - 48f, 0, SD_Y + 48f, Color.WHITE, Color.rgb(0xD2, 0xEC, 0xFA), Shader.TileMode.CLAMP);
     }
 
     // ---------------------------------------------------------------- state from the activity
@@ -439,8 +442,8 @@ final class WiiMenuView extends View {
         path.lineTo(cx - dir * 22f, ARROW_Y + 46f);
         path.close();
         paint.setStyle(Paint.Style.FILL);
-        paint.setShader(new LinearGradient(0, ARROW_Y - 46f, 0, ARROW_Y + 46f, Color.WHITE,
-                Color.rgb(0xCF, 0xEC, 0xFA), Shader.TileMode.CLAMP));
+        paint.setColor(Color.WHITE);
+        paint.setShader(arrowShader);
         c.drawPath(path, paint);
         paint.setShader(null);
         paint.setStyle(Paint.Style.STROKE);
@@ -626,7 +629,8 @@ final class WiiMenuView extends View {
         c.translate(4f, 5f);
         c.drawPath(path, paint);
         c.restore();
-        paint.setShader(new LinearGradient(0, t, 0, t + h, Color.WHITE, Color.rgb(0xD2, 0xEC, 0xFA), Shader.TileMode.CLAMP));
+        paint.setColor(Color.WHITE);
+        paint.setShader(sdShader);
         if (updateAvailable && !focused) paint.setAlpha((int) (140 + 115 * pulse));
         c.drawPath(path, paint);
         paint.setShader(null);
@@ -636,7 +640,7 @@ final class WiiMenuView extends View {
         paint.setColor(Color.rgb(0x3F, 0xA9, 0xE0));
         c.drawPath(path, paint);
         text.setTextAlign(Paint.Align.CENTER);
-        text.setTypeface(Typeface.create(bold, Typeface.BOLD_ITALIC));
+        text.setTypeface(boldItalic);
         text.setTextSize(34f);
         text.setColor(Color.rgb(0x3F, 0xA9, 0xE0));
         c.drawText("SD", SD_X + 2f, SD_Y + 12f, text);

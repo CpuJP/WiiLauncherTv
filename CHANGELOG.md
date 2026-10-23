@@ -2,6 +2,11 @@
 
 All notable changes are listed here. Format: [Keep a Changelog](https://keepachangelog.com/), versions: [SemVer](https://semver.org/).
 
+## [1.2.1] - 2026-10-22
+
+### Fixed
+- Fewer dropped frames: the arrow and SD card gradients and the italic font were created on every frame. They are now created once.
+
 ## [1.2.0] - 2026-10-22
 
 ### Changed
